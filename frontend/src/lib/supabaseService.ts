@@ -1,5 +1,24 @@
 import { supabase } from './supabaseClient'
 import { Cliente, Documento, Pago } from '../types'
+import { parseCobranzaExcelFile } from './excelService'
+
+// Interfaz para el tipado correcto de las filas del Excel parseado
+interface ParsedCobranzaRow {
+  razon_social?: string;
+  cliente?: string;
+  codigo_socio?: string;
+  ruc_dni?: string;
+  importe?: number;
+  saldo?: number;
+  estado?: string;
+}
+
+// Nota: Asegúrate de tener instalado o importado tu proveedor de notificaciones (ej: react-hot-toast o react-toastify)
+// si usas la variable global toast. De lo contrario, puedes definir un mock básico:
+const toast = (globalThis as any).toast || {
+  success: (msg: string) => console.log(`[Toast Success] ${msg}`),
+  error: (msg: string) => console.error(`[Toast Error] ${msg}`)
+}
 
 export type ClienteFormValues = Omit<Cliente, 'id' | 'created_at'> & { id?: string }
 
@@ -65,7 +84,7 @@ export const getPagos = async (): Promise<{ data: Pago[] | null; error: string |
   return { data: (data as Pago[]) || [], error: null }
 }
 
-// --- NUEVO: MÉTRICAS COMPLETA DE DASHBOARD DINÁMICO ---
+// --- MÉTRICAS COMPLETA DE DASHBOARD DINÁMICO ---
 
 export const getDashboardMetrics = async () => {
   if (!isSupabaseReady()) {
@@ -130,7 +149,6 @@ export const getDashboardMetrics = async () => {
       const nombreMes = meses[fecha.getMonth()];
 
       if (agrupado[nombreMes] !== undefined) {
-        // CORRECCIÓN: Asignación segura con cast a 'any' para evitar que TypeScript falle si 'monto' no está en la interfaz 'Pago'
         const monto = Number((pago as any).monto) || 0;
         const completado = (pago.estado || '').toLowerCase() === 'pagado' || (pago.estado || '').toLowerCase() === 'completado';
         
@@ -158,7 +176,7 @@ export const getDashboardMetrics = async () => {
       data: {
         clientesActivos,
         saldoPendienteTotal,
-        clientesLista: listaClientes.slice(0, 5), // Mandar solo los últimos 5 para la tabla del Dashboard
+        clientesLista: listaClientes.slice(0, 5),
         datosEstadoClientes,
         datosPagosMensuales,
       },
@@ -182,57 +200,109 @@ export const getDocumentos = async (): Promise<{ data: Documento[] | null; error
 }
 
 export const uploadDocumentoCompleto = async (
-  file: File,
-  nombreDocumento: string,
-  clienteId?: string
+  file: File, 
+  nombreDocumento?: string
 ): Promise<{ data: Documento | null; error: string | null }> => {
-  if (!isSupabaseReady()) {
-    return { data: null, error: 'Supabase no está configurado.' }
-  }
+  if (!isSupabaseReady()) return { data: null, error: 'Supabase no configurado.' }
 
   try {
-    const fileExtension = file.name.split('.').pop();
-    const cleanFileName = file.name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "_");
-    const storagePath = `${Date.now()}_${cleanFileName}.${fileExtension}`;
+    const fileExtension = file.name.split('.').pop() || 'pdf'
+    const cleanFileName = file.name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "_")
+    const storagePath = `${Date.now()}_${cleanFileName}.${fileExtension}`
 
+    // Subir a Storage
     const { error: storageError } = await supabase.storage
       .from('documentos')
-      .upload(storagePath, file, {
-        cacheControl: '3600',
-        upsert: false
-      });
+      .upload(storagePath, file, { cacheControl: '3600', upsert: true })
 
-    if (storageError) throw new Error(`Error en Storage: ${storageError.message}`);
+    if (storageError) throw new Error(`Storage: ${storageError.message}`)
 
-    const { data: urlData } = supabase.storage
-      .from('documentos')
-      .getPublicUrl(storagePath);
+    const { data: urlData } = supabase.storage.from('documentos').getPublicUrl(storagePath)
 
-    if (!urlData?.publicUrl) throw new Error('No se pudo generar la URL pública del archivo.');
-
+    // Guardar en BD (Utilizando las columnas estándar 'nombre', 'ruta_archivo' y 'url_archivo')
     const dbPayload = {
       nombre: nombreDocumento || file.name,
       ruta_archivo: storagePath,
-      url_archivo: urlData.publicUrl,
-      cliente_id: clienteId || null,
-      fecha_carga: new Date().toISOString()
-    };
+      url_archivo: urlData?.publicUrl || '',
+      fecha_carga: new Date().toISOString(),
+    }
 
     const { data: dbData, error: dbError } = await supabase
       .from('documentos')
       .insert([dbPayload])
       .select()
-      .single();
+      .single()
 
     if (dbError) {
-      await supabase.storage.from('documentos').remove([storagePath]);
-      throw new Error(`Error en Base de Datos: ${dbError.message}`);
+      await supabase.storage.from('documentos').remove([storagePath])
+      throw new Error(`Base de Datos: ${dbError.message}`)
     }
 
-    return { data: dbData as Documento, error: null };
+    // PROCESAMIENTO DEL EXCEL (CON CORRECCIONES Y FILTRADO ANTI-ERRORES)
+    if (file.name.match(/\.(xls|xlsx)$/i)) {
+      try {
+        console.log('🚀 Iniciando procesamiento de Excel:', file.name)
+        const parsedRows = await parseCobranzaExcelFile(file)
+        console.log('✅ Filas parseadas:', parsedRows.length)
+        
+        if (parsedRows.length > 0) {
+          console.log('Ejemplo de fila original del Excel:', parsedRows[0])
+        }
+        
+        // Mapeamos asegurando que NUNCA se envíen campos críticos como undefined o vacíos
+        const clientesToInsert = parsedRows
+          .map((row: ParsedCobranzaRow, index: number) => {
+            const nombre = (row.razon_social || row.cliente || '').trim() || 'Cliente sin nombre';
+            // Si no hay código o ruc, generamos uno único combinando el tiempo y el índice de la fila
+            const numero_credito = (row.codigo_socio || row.ruc_dni || '').trim() || `AUTO-${Date.now()}-${index}`;
+            
+            // Homologación de Estado estricto para saltar el Check Constraint "clientes_estado_check"
+            // Traduce palabras clave a "En Mora", de lo contrario por defecto se le asigna "Al Día"
+            const rawEstado = (row.estado || '').toLowerCase().trim();
+            let estadoHomologado = 'Al Día';
+            
+            if (rawEstado.includes('mora') || rawEstado.includes('vencid') || rawEstado.includes('atras')) {
+              estadoHomologado = 'En Mora';
+            }
+
+            return {
+              nombre,
+              numero_credito,
+              monto_total: Number(row.importe) || 0,
+              saldo_pendiente: Number(row.saldo) || 0,
+              estado: estadoHomologado, 
+            }
+          })
+          // Filtro extra: Evitamos enviar objetos corruptos
+          .filter(c => c.numero_credito && c.nombre);
+
+        console.log('Clientes listos para insertar limpios:', clientesToInsert.length)
+        
+        if (clientesToInsert.length > 0) {
+          // Intentamos la inserción mediante upsert masivo
+          const { error, data } = await supabase
+            .from('clientes')
+            .upsert(clientesToInsert, { onConflict: 'numero_credito' })
+            .select()
+            
+          if (error) {
+            console.error('❌ Error detallado de Supabase al insertar clientes:', error)
+            toast.error(`Error de Base de Datos: ${error.message}`)
+          } else {
+            console.log('✅ ¡Clientes insertados con éxito en Supabase! Cantidad:', data?.length || 0)
+            toast.success(`¡Procesados e insertados ${data?.length || 0} registros con éxito!`)
+          }
+        }
+      } catch (excelError) {
+        console.error('❌ Error crítico procesando Excel:', excelError)
+        toast.error('No se pudo procesar el archivo Excel')
+      }
+    }
+
+    return { data: dbData as Documento, error: null }
   } catch (error: any) {
-    console.error('Error al subir documento completo:', error);
-    return { data: null, error: error.message || 'Error desconocido al procesar el archivo.' };
+    console.error('Error al subir:', error)
+    return { data: null, error: error.message }
   }
 }
 
@@ -257,12 +327,67 @@ export const deleteDocumentoCompleto = async (
       .remove([storagePath]);
 
     if (storageError) {
-      console.warn(`Advertencia: El registro se borró de la BD pero el archivo en Storage "${storagePath}" no pudo ser eliminado.`);
+      console.warn(`Advertencia: El archivo en Storage "${storagePath}" no pudo ser eliminado.`);
     }
 
     return { error: null };
   } catch (error: any) {
     console.error('Error al eliminar documento completo:', error);
     return { error: error.message || 'Error desconocido al eliminar.' };
+  }
+}
+
+// --- DASHBOARD BASADO EN EXCEL (ÚLTIMO DOCUMENTO) ---
+
+export const getDashboardMetricsFromExcel = async () => {
+  if (!isSupabaseReady()) {
+    return { data: null, error: 'Supabase no está configurado.' }
+  }
+
+  try {
+    console.log('📊 Solicitando métricas del Dashboard desde la base de datos...')
+
+    // 1. Validar si existen documentos registrados
+    const { data: docs, error: errorDocs } = await supabase
+      .from('documentos')
+      .select('*')
+      .order('fecha_carga', { ascending: false })
+      .limit(1);
+
+    if (errorDocs) throw errorDocs;
+
+    console.log('📄 Último documento encontrado:', docs?.[0] || 'Ninguno');
+
+    // 2. Traer todos los clientes cargados por el Excel
+    const { data: clientes, error: errorClientes } = await supabase
+      .from('clientes')
+      .select('*');
+
+    if (errorClientes) throw errorClientes;
+
+    const listaClientes = (clientes as Cliente[]) || [];
+    console.log('👥 Total de clientes recuperados para el Dashboard:', listaClientes.length);
+
+    // Calcular totales basados en los datos reales insertados
+    const saldoPendienteTotal = listaClientes.reduce((sum, c) => sum + (Number(c.saldo_pendiente) || 0), 0);
+    const clientesEnMora = listaClientes.filter(c => (c.estado || '').toLowerCase().includes('mora')).length;
+    const clientesAlDia = listaClientes.length - clientesEnMora;
+
+    return {
+      data: {
+        clientesActivos: listaClientes.length,
+        saldoPendienteTotal,
+        clientesEnMora,
+        totalDeuda: saldoPendienteTotal,
+        datosEstado: [
+          { name: 'Al Día', value: clientesAlDia, color: '#10B981' },
+          { name: 'En Mora', value: clientesEnMora, color: '#EF4444' },
+        ],
+      },
+      error: null
+    };
+  } catch (err: any) {
+    console.error('❌ Error en getDashboardMetricsFromExcel:', err);
+    return { data: null, error: err.message || 'Error al compilar métricas desde Excel.' };
   }
 }
