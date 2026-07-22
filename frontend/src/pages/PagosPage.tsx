@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
 import { getDocumentos } from '../lib/supabaseService';
 import { parseCobranzaExcelFile } from '../lib/excelService';
-import { Search, Calendar, Check, CheckCircle2, FileText, AlertCircle, XCircle } from 'lucide-react';
+import { Search, Calendar, Check, CheckCircle2, FileText, AlertCircle, XCircle, MessageSquare } from 'lucide-react';
 
 interface DocumentoExtendido {
   id: string;
@@ -43,11 +43,10 @@ export default function PagosPage() {
   const [inputsFecha, setInputsFecha] = useState<{ [key: string]: string }>({});
   const [inputsMetodo, setInputsMetodo] = useState<{ [key: string]: string }>({});
 
-  // === NUEVO: Escucha la redirección desde el Dashboard ===
   useEffect(() => {
     if (location.state?.searchDocumento) {
-      setSearchTerm(location.state.searchDocumento); // Rellena el buscador con el documento
-      setSubFilter('TODO'); // Resetea filtros de Mora / Al día para asegurar que aparezca
+      setSearchTerm(location.state.searchDocumento);
+      setSubFilter('TODO');
     }
   }, [location.state]);
 
@@ -129,6 +128,22 @@ export default function PagosPage() {
     const nuevosMetodos = { ...inputsMetodo, [rowId]: value };
     setInputsMetodo(nuevosMetodos);
     localStorage.setItem('cobranza_ediciones_metodo', JSON.stringify(nuevosMetodos));
+  };
+
+  const getWhatsAppUrl = (row: any) => {
+    const docNum = row.documento || row.doc || row.num_doc || 'S/N';
+    const saldoExcel = Number(row.saldo || 0);
+    const diasMora = Number(row.dias_mora || 0);
+    const cliente = row.cliente || 'Estimado/a cliente';
+    const rep = row.representante || row.vendedor || '-';
+
+    const mensaje = `Estimado/a *${cliente}*,\n\n` +
+      `Le contactamos respecto a la cuenta pendiente con el documento *${docNum}* por un monto de *S/. ${saldoExcel.toLocaleString('es-PE', { minimumFractionDigits: 2 })}*.` +
+      `${diasMora > 0 ? ` (Días de mora: ${diasMora})` : ''}\n\n` +
+      `Agradecemos coordinar con su representante *${rep}* para el registro de su comprobante de pago.\n\n` +
+      `¡Que tenga un excelente día!`;
+
+    return `https://api.whatsapp.com/send?text=${encodeURIComponent(mensaje)}`;
   };
 
   const filteredRows = allRows.filter((row: any) => {
@@ -268,7 +283,7 @@ export default function PagosPage() {
                 <th className="p-3 w-[12%] text-blue-600 bg-blue-50/30">Fecha Prog.</th>
                 <th className="p-3 text-right w-[11%] bg-gray-100/50 text-gray-700">Saldo Restante</th>
                 <th className="p-3 w-[10%]">Vía Canal</th>
-                <th className="p-3 text-center w-[4%]">Acción</th>
+                <th className="p-3 text-center w-[8%]">Acción</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50 text-gray-700">
@@ -335,9 +350,24 @@ export default function PagosPage() {
                       </select>
                     </td>
                     <td className="p-3 text-center">
-                      <button onClick={() => handleProgramarFila(row, index)} className="p-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition shadow-sm">
-                        <Check className="h-4 w-4" />
-                      </button>
+                      <div className="flex items-center justify-center gap-1.5">
+                        <a
+                          href={getWhatsAppUrl(row)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1.5 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition shadow-sm"
+                          title="Enviar mensaje por WhatsApp"
+                        >
+                          <MessageSquare className="h-4 w-4" />
+                        </a>
+                        <button 
+                          onClick={() => handleProgramarFila(row, index)} 
+                          className="p-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition shadow-sm"
+                          title="Programar cobro"
+                        >
+                          <Check className="h-4 w-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

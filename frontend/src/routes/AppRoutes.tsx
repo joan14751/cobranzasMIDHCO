@@ -8,6 +8,7 @@ import DocumentosPage from '../pages/DocumentosPage.tsx'
 import LoginPage from '../pages/LoginPage.tsx'
 import MlPage from '../pages/MlPage.tsx'
 import PagosPage from '../pages/PagosPage.tsx'
+import LogsPage from '../pages/LogsPage.tsx' // <-- 1. IMPORTACIÓN AGREGADA
 
 function AppRoutes() {
   const { user, loading } = useAuth()
@@ -47,6 +48,13 @@ function AppRoutes() {
         path="/ml"
         element={user ? <Layout><MlPage /></Layout> : <Navigate to="/login" replace />}
       />
+      
+      {/* <-- 2. NUEVA RUTA DE AUDITORÍA IMPLEMENTADA */}
+      <Route
+        path="/auditoria"
+        element={user ? <Layout><LogsPage /></Layout> : <Navigate to="/login" replace />}
+      />
+
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
