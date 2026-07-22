@@ -1,15 +1,18 @@
 import { BrowserRouter as Router } from 'react-router-dom'
-import { AuthProvider } from './contexts/AuthContext.tsx'
-import AppRoutes from './routes/AppRoutes.tsx'
-import { SidebarProvider } from './contexts/SidebarContext.tsx'
+import { AuthProvider } from './contexts/AuthContext'
+import AppRoutes from './routes/AppRoutes'
+import { SidebarProvider } from './contexts/SidebarContext'
+import { ThemeProvider } from './contexts/ThemeContext'
 
 function App() {
   return (
     <Router>
       <AuthProvider>
-        <SidebarProvider>
-          <AppRoutes />
-        </SidebarProvider>
+        <ThemeProvider>
+          <SidebarProvider>
+            <AppRoutes />
+          </SidebarProvider>
+        </ThemeProvider>
       </AuthProvider>
     </Router>
   )

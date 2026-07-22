@@ -1,8 +1,9 @@
 import { ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { FileText, Home, LogOut, Menu, Receipt, Sparkles, Users, Clock } from 'lucide-react'
-import { useAuth } from '../contexts/AuthContext.tsx'
-import { useSidebar } from '../contexts/SidebarContext.tsx'
+import { FileText, Home, LogOut, Menu, Receipt, Sparkles, Users, Clock, Sun, Moon } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
+import { useSidebar } from '../contexts/SidebarContext'
+import { useTheme } from '../contexts/ThemeContext'
 
 interface LayoutProps {
   children: ReactNode
@@ -11,6 +12,7 @@ interface LayoutProps {
 function Layout({ children }: LayoutProps) {
   const { signOut } = useAuth()
   const { isOpen, toggleSidebar } = useSidebar()
+  const { theme, toggleTheme } = useTheme()
   const location = useLocation()
 
   const navItems = [
@@ -23,20 +25,20 @@ function Layout({ children }: LayoutProps) {
   ]
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors duration-300">
       <div className="flex">
-        {/* BARRA LATERAL FIJA (fixed + h-screen + z-40) */}
+        {/* BARRA LATERAL FIJA */}
         <aside 
-          className={`fixed top-0 left-0 z-40 h-screen flex-col border-r bg-white py-6 transition-all duration-300 hidden md:flex ${
+          className={`fixed top-0 left-0 z-40 h-screen flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 py-6 transition-all duration-300 hidden md:flex ${
             isOpen ? 'w-64 px-4' : 'w-20 px-2 items-center'
           }`}
         >
           {/* HEADER DEL SIDEBAR */}
           <div className={`mb-8 flex w-full items-center ${isOpen ? 'justify-between' : 'justify-center'}`}>
-            {isOpen && <h2 className="text-lg font-semibold text-slate-800">Cobranza</h2>}
+            {isOpen && <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Cobranza</h2>}
             <button 
               onClick={toggleSidebar} 
-              className="rounded-lg p-2 hover:bg-slate-100 text-slate-600 transition-colors"
+              className="rounded-lg p-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors"
               title={isOpen ? "Colapsar menú" : "Expandir menú"}
             >
               <Menu className="h-5 w-5" />
@@ -53,7 +55,11 @@ function Layout({ children }: LayoutProps) {
                   to={path}
                   className={`flex items-center gap-3 rounded-lg py-2.5 font-medium transition-all ${
                     isOpen ? 'px-3 text-sm justify-start' : 'px-0 justify-center text-base'
-                  } ${active ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-700 hover:bg-slate-100'}`}
+                  } ${
+                    active 
+                      ? 'bg-blue-600 text-white shadow-sm' 
+                      : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                  }`}
                   title={!isOpen ? label : undefined}
                 >
                   <Icon className={`${isOpen ? 'h-4 w-4' : 'h-5 w-5'} flex-shrink-0`} />
@@ -63,20 +69,39 @@ function Layout({ children }: LayoutProps) {
             })}
           </nav>
 
-          {/* BOTÓN DE CERRAR SESIÓN */}
-          <button
-            onClick={() => signOut()}
-            className={`flex items-center gap-3 rounded-lg py-2.5 font-medium text-slate-700 hover:bg-red-50 hover:text-red-600 transition-all w-full mt-auto ${
-              isOpen ? 'px-3 text-sm justify-start' : 'px-0 justify-center text-base'
-            }`}
-            title={!isOpen ? "Cerrar sesión" : undefined}
-          >
-            <LogOut className={`${isOpen ? 'h-4 w-4' : 'h-5 w-5'} flex-shrink-0`} />
-            {isOpen && <span>Cerrar sesión</span>}
-          </button>
+          {/* CONTROLES INFERIORES */}
+          <div className="w-full space-y-2 pt-4 border-t border-slate-100 dark:border-slate-800">
+            {/* BOTÓN CAMBIO DE TEMA */}
+            <button
+              onClick={toggleTheme}
+              className={`flex items-center gap-3 rounded-lg py-2.5 font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all w-full ${
+                isOpen ? 'px-3 text-sm justify-start' : 'px-0 justify-center text-base'
+              }`}
+              title={!isOpen ? (theme === 'dark' ? "Modo Claro" : "Modo Oscuro") : undefined}
+            >
+              {theme === 'dark' ? (
+                <Sun className={`${isOpen ? 'h-4 w-4' : 'h-5 w-5'} flex-shrink-0 text-amber-400`} />
+              ) : (
+                <Moon className={`${isOpen ? 'h-4 w-4' : 'h-5 w-5'} flex-shrink-0 text-slate-600 dark:text-slate-300`} />
+              )}
+              {isOpen && <span>{theme === 'dark' ? 'Modo Claro' : 'Modo Oscuro'}</span>}
+            </button>
+
+            {/* BOTÓN CERRAR SESIÓN */}
+            <button
+              onClick={() => signOut()}
+              className={`flex items-center gap-3 rounded-lg py-2.5 font-medium text-slate-700 dark:text-slate-300 hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-600 dark:hover:text-red-400 transition-all w-full ${
+                isOpen ? 'px-3 text-sm justify-start' : 'px-0 justify-center text-base'
+              }`}
+              title={!isOpen ? "Cerrar sesión" : undefined}
+            >
+              <LogOut className={`${isOpen ? 'h-4 w-4' : 'h-5 w-5'} flex-shrink-0`} />
+              {isOpen && <span>Cerrar sesión</span>}
+            </button>
+          </div>
         </aside>
 
-        {/* CONTENIDO PRINCIPAL (Con margen dinámico según el estado del sidebar) */}
+        {/* CONTENIDO PRINCIPAL */}
         <main className={`flex-1 p-6 transition-all duration-300 w-full ${
           isOpen ? 'md:pl-64' : 'md:pl-20'
         }`}>
