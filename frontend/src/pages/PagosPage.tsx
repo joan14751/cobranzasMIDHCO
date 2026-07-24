@@ -1,259 +1,229 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
-import { toast } from 'react-hot-toast';
-import { getDocumentos } from '../lib/supabaseService';
-import { parseCobranzaExcelFile } from '../lib/excelService';
-import { Search, Calendar, Check, CheckCircle2, FileText, AlertCircle, XCircle, MessageSquare, X } from 'lucide-react';
-
-interface DocumentoExtendido {
-  id: string;
-  nombre: string;
-  ruta_archivo: string;
-  url_archivo: string;
-}
+import React, { useState, useEffect, useMemo, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
+import { toast } from 'react-hot-toast'
+import { getDocumentos } from '../lib/supabaseService'
+import { parseCobranzaExcelFile } from '../lib/excelService'
+import { 
+  Search, Calendar, Check, CheckCircle2, FileText, 
+  Trash2, X, Download, Printer, DollarSign, CreditCard 
+} from 'lucide-react'
+import * as XLSX from 'xlsx'
 
 interface PagoProgramado {
-  id: string;
-  cliente: string;
-  documento: string;
-  representante: string;
-  montoOriginal: number;
-  montoProgramado: number;
-  fechaProgramada: string;
-  metodoPago: string;
-  estado: 'Pendiente' | 'Completado';
+  id: string
+  cliente: string
+  documento: string
+  representante: string
+  montoOriginal: number
+  montoProgramado: number
+  fechaProgramada: string
+  metodoPago: string
+  estado: 'Pendiente' | 'Completado'
 }
 
 export default function PagosPage() {
-  const location = useLocation();
-  const [loading, setLoading] = useState(true);
+  const location = useLocation()
+  const [loading, setLoading] = useState(true)
   
-  const [searchTerm, setSearchTerm] = useState(() => {
-    return (location.state as any)?.filterText || '';
-  });
+  const [searchTerm, setSearchTerm] = useState(() => (location.state as any)?.filterText || '')
+  const [subFilter, setSubFilter] = useState<string>(() => (location.state as any)?.filterType || 'TODO')
+  const [repFilter, setRepFilter] = useState('TODOS')
 
-  const [subFilter, setSubFilter] = useState<string>(() => {
-    return (location.state as any)?.filterType || 'TODO';
-  });
-  
-  const [allRows, setAllRows] = useState<any[]>([]);
-  const [pagosProgramados, setPagosProgramados] = useState<PagoProgramado[]>([]);
+  const [allRows, setAllRows] = useState<any[]>([])
+  const [pagosProgramados, setPagosProgramados] = useState<PagoProgramado[]>([])
 
-  const [inputsMonto, setInputsMonto] = useState<{ [key: string]: string }>({});
-  const [inputsFecha, setInputsFecha] = useState<{ [key: string]: string }>({});
-  const [inputsMetodo, setInputsMetodo] = useState<{ [key: string]: string }>({});
+  const [inputsMonto, setInputsMonto] = useState<{ [key: string]: string }>({})
+  const [inputsFecha, setInputsFecha] = useState<{ [key: string]: string }>({})
+  const [inputsMetodo, setInputsMetodo] = useState<{ [key: string]: string }>({})
 
-  // Estados para el autocompletado
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [selectedIndex, setSelectedIndex] = useState(-1);
-  const searchContainerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (location.state?.searchDocumento) {
-      setSearchTerm(location.state.searchDocumento);
-      setSubFilter('TODO');
-    }
-  }, [location.state]);
+  // Estado para el autocompletado en búsqueda
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const [selectedIndex, setSelectedIndex] = useState(-1)
+  const searchContainerRef = useRef<HTMLDivElement>(null)
 
   const loadExcelData = async () => {
-    setLoading(true);
+    setLoading(true)
     try {
-      const { data, error } = await getDocumentos();
-      if (error) throw new Error(error);
+      const { data, error } = await getDocumentos()
+      if (error) throw new Error(error)
 
-      const documentos = (data || []) as unknown as DocumentoExtendido[];
+      const documentos = (data || []) as any[]
       const excelDocs = documentos.filter((doc) => 
         doc.ruta_archivo && (doc.ruta_archivo.endsWith('.xls') || doc.ruta_archivo.endsWith('.xlsx'))
-      );
+      )
 
       if (excelDocs.length === 0) {
-        setLoading(false);
-        return;
+        setLoading(false)
+        return
       }
 
-      const ultimoExcel = excelDocs[0];
-      const response = await fetch(ultimoExcel.url_archivo);
-      const blob = await response.blob();
-      const file = new File([blob], ultimoExcel.nombre, { type: blob.type });
+      const ultimoExcel = excelDocs[0]
+      const response = await fetch(ultimoExcel.url_archivo)
+      const blob = await response.blob()
+      const file = new File([blob], ultimoExcel.nombre, { type: blob.type })
 
-      const parsedRows = await parseCobranzaExcelFile(file);
-      setAllRows(parsedRows);
+      const parsedRows = await parseCobranzaExcelFile(file)
+      setAllRows(parsedRows)
 
-      const mañana = new Date();
-      mañana.setDate(mañana.getDate() + 1);
-      const fechaDefecto = mañana.toISOString().split('T')[0];
+      const mañana = new Date()
+      mañana.setDate(mañana.getDate() + 1)
+      const fechaDefecto = mañana.toISOString().split('T')[0]
 
-      const savedMontos = localStorage.getItem('cobranza_ediciones_monto');
-      const savedFechas = localStorage.getItem('cobranza_ediciones_fecha');
-      const savedMetodos = localStorage.getItem('cobranza_ediciones_metodo');
+      const savedMontos = localStorage.getItem('cobranza_ediciones_monto')
+      const savedFechas = localStorage.getItem('cobranza_ediciones_fecha')
+      const savedMetodos = localStorage.getItem('cobranza_ediciones_metodo')
 
-      const localMontos = savedMontos ? JSON.parse(savedMontos) : {};
-      const localFechas = savedFechas ? JSON.parse(savedFechas) : {};
-      const localMetodos = savedMetodos ? JSON.parse(savedMetodos) : {};
+      const localMontos = savedMontos ? JSON.parse(savedMontos) : {}
+      const localFechas = savedFechas ? JSON.parse(savedFechas) : {}
+      const localMetodos = savedMetodos ? JSON.parse(savedMetodos) : {}
 
-      const inicialMonto: { [key: string]: string } = {};
-      const inicialFecha: { [key: string]: string } = {};
-      const inicialMetodo: { [key: string]: string } = {};
+      const inicialMonto: { [key: string]: string } = {}
+      const inicialFecha: { [key: string]: string } = {}
+      const inicialMetodo: { [key: string]: string } = {}
 
       parsedRows.forEach((row: any, index: number) => {
-        const rowId = row.id || `row-${index}`;
-        inicialMonto[rowId] = localMontos[rowId] !== undefined ? localMontos[rowId] : '';
-        inicialFecha[rowId] = localFechas[rowId] !== undefined ? localFechas[rowId] : fechaDefecto;
-        inicialMetodo[rowId] = localMetodos[rowId] !== undefined ? localMetodos[rowId] : 'Transferencia BCP';
-      });
+        const rowId = row.id || `row-${index}`
+        inicialMonto[rowId] = localMontos[rowId] !== undefined ? localMontos[rowId] : ''
+        inicialFecha[rowId] = localFechas[rowId] !== undefined ? localFechas[rowId] : fechaDefecto
+        inicialMetodo[rowId] = localMetodos[rowId] !== undefined ? localMetodos[rowId] : 'Transferencia BCP'
+      })
 
-      setInputsMonto(inicialMonto);
-      setInputsFecha(inicialFecha);
-      setInputsMetodo(inicialMetodo);
+      setInputsMonto(inicialMonto)
+      setInputsFecha(inicialFecha)
+      setInputsMetodo(inicialMetodo)
 
-      const localSaved = localStorage.getItem('cobranza_pagos_programados');
-      if (localSaved) setPagosProgramados(JSON.parse(localSaved));
+      const localSaved = localStorage.getItem('cobranza_pagos_programados')
+      if (localSaved) setPagosProgramados(JSON.parse(localSaved))
     } catch (err: any) {
-      toast.error('Error al cargar datos de pagos: ' + err.message);
+      toast.error('Error al cargar datos de pagos: ' + err.message)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
-  useEffect(() => { loadExcelData(); }, []);
+  useEffect(() => { loadExcelData() }, [])
 
-  // Cerrar sugerencias al hacer clic fuera del input
+  // Sincronizar autocompletado fuera de foco
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
-        setShowSuggestions(false);
+        setShowSuggestions(false)
       }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  // Generar sugerencias únicas (clientes, representantes y documentos)
-  const suggestions = useMemo(() => {
-    const term = searchTerm.toLowerCase().trim();
-    if (!term) return [];
-
-    const setSugerencias = new Map<string, { label: string; subLabel: string }>();
-
-    allRows.forEach((row: any) => {
-      const cliente = (row.cliente || '').trim();
-      const rep = (row.representante || row.vendedor || '').trim();
-      const doc = (row.documento || row.doc || row.num_doc || '').trim();
-
-      if (cliente && cliente.toLowerCase().includes(term)) {
-        setSugerencias.set(`cli-${cliente}`, { label: cliente, subLabel: 'Cliente' });
-      }
-      if (rep && rep.toLowerCase().includes(term) && rep !== '-') {
-        setSugerencias.set(`rep-${rep}`, { label: rep, subLabel: 'Representante' });
-      }
-      if (doc && doc.toLowerCase().includes(term)) {
-        setSugerencias.set(`doc-${doc}`, { label: doc, subLabel: `Doc • ${cliente}` });
-      }
-    });
-
-    return Array.from(setSugerencias.values()).slice(0, 8);
-  }, [searchTerm, allRows]);
-
-  const handleSelectSuggestion = (val: string) => {
-    setSearchTerm(val);
-    setShowSuggestions(false);
-    setSelectedIndex(-1);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!showSuggestions || suggestions.length === 0) return;
-
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setSelectedIndex((prev) => (prev < suggestions.length - 1 ? prev + 1 : 0));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setSelectedIndex((prev) => (prev > 0 ? prev - 1 : suggestions.length - 1));
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (selectedIndex >= 0 && selectedIndex < suggestions.length) {
-        handleSelectSuggestion(suggestions[selectedIndex].label);
-      } else {
-        setShowSuggestions(false);
-      }
-    } else if (e.key === 'Escape') {
-      setShowSuggestions(false);
     }
-  };
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
-  const handleMontoChange = (rowId: string, value: string) => {
-    const nuevosMontos = { ...inputsMonto, [rowId]: value };
-    setInputsMonto(nuevosMontos);
-    localStorage.setItem('cobranza_ediciones_monto', JSON.stringify(nuevosMontos));
-  };
+  // Guardar Inputs en LocalStorage
+  const handleInputChange = (rowId: string, type: 'monto' | 'fecha' | 'metodo', value: string) => {
+    if (type === 'monto') {
+      const updated = { ...inputsMonto, [rowId]: value }
+      setInputsMonto(updated)
+      localStorage.setItem('cobranza_ediciones_monto', JSON.stringify(updated))
+    } else if (type === 'fecha') {
+      const updated = { ...inputsFecha, [rowId]: value }
+      setInputsFecha(updated)
+      localStorage.setItem('cobranza_ediciones_fecha', JSON.stringify(updated))
+    } else if (type === 'metodo') {
+      const updated = { ...inputsMetodo, [rowId]: value }
+      setInputsMetodo(updated)
+      localStorage.setItem('cobranza_ediciones_metodo', JSON.stringify(updated))
+    }
+  }
 
-  const handleFechaChange = (rowId: string, value: string) => {
-    const nuevasFechas = { ...inputsFecha, [rowId]: value };
-    setInputsFecha(nuevasFechas);
-    localStorage.setItem('cobranza_ediciones_fecha', JSON.stringify(nuevasFechas));
-  };
+  // EXPORTACIONES (EXCEL Y IMPRESIÓN/PDF)
+  const exportToExcel = () => {
+    if (pagosProgramados.length === 0) {
+      toast.error('No hay pagos programados para exportar.')
+      return
+    }
 
-  const handleMetodoChange = (rowId: string, value: string) => {
-    const nuevosMetodos = { ...inputsMetodo, [rowId]: value };
-    setInputsMetodo(nuevosMetodos);
-    localStorage.setItem('cobranza_ediciones_metodo', JSON.stringify(nuevosMetodos));
-  };
+    const dataToExport = pagosProgramados.map(p => ({
+      Cliente: p.cliente,
+      Documento: p.documento,
+      Representante: p.representante,
+      'Fecha Programada': p.fechaProgramada,
+      'Canal de Pago': p.metodoPago,
+      'Monto (S/.)': p.montoProgramado,
+      Estado: p.estado
+    }))
 
-  const getWhatsAppUrl = (row: any) => {
-    const docNum = row.documento || row.doc || row.num_doc || 'S/N';
-    const saldoExcel = Number(row.saldo || 0);
-    const diasMora = Number(row.dias_mora || 0);
-    const cliente = row.cliente || 'Estimado/a cliente';
-    const rep = row.representante || row.vendedor || '-';
+    const worksheet = XLSX.utils.json_to_sheet(dataToExport)
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Cronograma_Pagos')
+    XLSX.writeFile(workbook, `Cronograma_Cobros_${new Date().toISOString().split('T')[0]}.xlsx`)
+    toast.success('Reporte exportado correctamente a Excel.')
+  }
 
-    const mensaje = `Estimado/a *${cliente}*,\n\n` +
-      `Le contactamos respecto a la cuenta pendiente con el documento *${docNum}* por un monto de *S/. ${saldoExcel.toLocaleString('es-PE', { minimumFractionDigits: 2 })}*.` +
-      `${diasMora > 0 ? ` (Días de mora: ${diasMora})` : ''}\n\n` +
-      `Agradecemos coordinar con su representante *${rep}* para el registro de su comprobante de pago.\n\n` +
-      `¡Que tenga un excelente día!`;
+  const handlePrintPDF = () => { window.print() }
 
-    return `https://api.whatsapp.com/send?text=${encodeURIComponent(mensaje)}`;
-  };
+  // Vendedores Únicos
+  const vendedoresUnicos = useMemo(() => {
+    const setV = new Set<string>()
+    allRows.forEach((r) => {
+      const rep = r.representante || r.vendedor
+      if (rep) setV.add(rep)
+    })
+    return Array.from(setV).sort()
+  }, [allRows])
 
-  const filteredRows = allRows.filter((row: any) => {
-    const term = searchTerm.toLowerCase().trim();
-    const docNum = (row.documento || row.doc || row.num_doc || '').toLowerCase();
-    const diasMora = Number(row.dias_mora || 0);
+  // Lista de Sugerencias para Autocompletado
+  const sugerenciasClientes = useMemo(() => {
+    if (!searchTerm.trim()) return []
+    const term = searchTerm.toLowerCase().trim()
+    const setClientes = new Set<string>()
+    allRows.forEach((row) => {
+      if (row.cliente && row.cliente.toLowerCase().includes(term)) {
+        setClientes.add(row.cliente)
+      }
+    })
+    return Array.from(setClientes).slice(0, 6)
+  }, [allRows, searchTerm])
 
-    const matchesText = (row.cliente || '').toLowerCase().includes(term) || 
-                        (row.representante || row.vendedor || '').toLowerCase().includes(term) ||
-                        docNum.includes(term);
+  // KPIs
+  const kpis = useMemo(() => {
+    let programadoPendiente = 0
+    pagosProgramados.filter(p => p.estado === 'Pendiente').forEach(p => programadoPendiente += p.montoProgramado)
 
-    if (!matchesText) return false;
+    return {
+      totalProgramado: programadoPendiente,
+      cantidadAgendados: pagosProgramados.length
+    }
+  }, [pagosProgramados])
 
-    if (subFilter === 'MORA') return diasMora > 0;
-    if (subFilter === 'ALDIA') return diasMora <= 0;
-    
-    return true;
-  });
+  // Filtros
+  const filteredRows = useMemo(() => {
+    return allRows.filter((row: any) => {
+      const term = searchTerm.toLowerCase().trim()
+      const docNum = (row.documento || row.doc || row.num_doc || '').toLowerCase()
+      const diasMora = Number(row.dias_mora || 0)
+      const rep = row.representante || row.vendedor || ''
 
-  const getMoraBadge = (dias: number) => {
-    if (dias <= 0) return <span className="text-[10px] px-2 py-0.5 bg-green-50 text-green-700 font-semibold border border-green-200 rounded-md">Al Día</span>;
-    if (dias <= 15) return <span className="text-[10px] px-2 py-0.5 bg-amber-50 text-amber-700 font-semibold border border-amber-200 rounded-md">Mora ≤ 15d</span>;
-    if (dias <= 45) return <span className="text-[10px] px-2 py-0.5 bg-orange-50 text-orange-700 font-semibold border border-orange-200 rounded-md">Mora 16-45d</span>;
-    return <span className="inline-flex items-center gap-0.5 text-[10px] px-2 py-0.5 bg-red-50 text-red-700 font-bold border border-red-200 rounded-md animate-pulse"><AlertCircle className="h-3 w-3" /> Crítico</span>;
-  };
+      const matchesText = (row.cliente || '').toLowerCase().includes(term) || 
+                          rep.toLowerCase().includes(term) ||
+                          docNum.includes(term)
 
+      const matchesRep = repFilter === 'TODOS' || rep === repFilter
+
+      if (!matchesText || !matchesRep) return false
+
+      if (subFilter === 'MORA') return diasMora > 0
+      if (subFilter === 'ALDIA') return diasMora <= 0
+      
+      return true
+    })
+  }, [allRows, searchTerm, subFilter, repFilter])
+
+  // Programar Fila
   const handleProgramarFila = (row: any, index: number) => {
-    const rowId = row.id || `row-${index}`;
-    const monto = inputsMonto[rowId];
-    const fecha = inputsFecha[rowId];
-    const metodo = inputsMetodo[rowId] || 'Transferencia BCP';
+    const rowId = row.id || `row-${index}`
+    const monto = inputsMonto[rowId]
+    const fecha = inputsFecha[rowId]
+    const metodo = inputsMetodo[rowId] || 'Transferencia BCP'
 
-    if (!monto || monto.trim() === '') {
-      toast.error('Por favor, ingresa un monto manual antes de programar.');
-      return;
-    }
-
-    const valorMonto = parseFloat(monto);
-    if (isNaN(valorMonto) || valorMonto <= 0) {
-      toast.error('El monto debe ser un número válido y mayor a 0.');
-      return;
+    if (!monto || parseFloat(monto) <= 0) {
+      toast.error('Por favor, ingresa un monto válido.')
+      return
     }
 
     const nuevoPago: PagoProgramado = {
@@ -262,117 +232,171 @@ export default function PagosPage() {
       documento: row.documento || row.doc || row.num_doc || 'S/N',
       representante: row.representante || row.vendedor || 'No Asignado',
       montoOriginal: Number(row.saldo || 0),
-      montoProgramado: valorMonto,
+      montoProgramado: parseFloat(monto),
       fechaProgramada: fecha,
       metodoPago: metodo,
       estado: 'Pendiente'
-    };
+    }
 
-    const listaActualizada = [nuevoPago, ...pagosProgramados];
-    setPagosProgramados(listaActualizada);
-    localStorage.setItem('cobranza_pagos_programados', JSON.stringify(listaActualizada));
-    
-    handleMontoChange(rowId, '');
-    toast.success(`¡Cobro de S/. ${valorMonto} agendado para ${nuevoPago.cliente}!`);
-  };
+    const listaActualizada = [nuevoPago, ...pagosProgramados]
+    setPagosProgramados(listaActualizada)
+    localStorage.setItem('cobranza_pagos_programados', JSON.stringify(listaActualizada))
+    toast.success('Cobro agendado en el cronograma.')
+  }
 
-  const handleCompletarPago = (id: string) => {
-    const listaActualizada = pagosProgramados.map((p) => p.id === id ? { ...p, estado: 'Completado' as const } : p);
-    setPagosProgramados(listaActualizada);
-    localStorage.setItem('cobranza_pagos_programados', JSON.stringify(listaActualizada));
-    toast.success('Pago marcado como recibido correctamente.');
-  };
+  // Acciones en Cronograma
+  const toggleEstadoPago = (id: string) => {
+    const actualizados = pagosProgramados.map((p) => {
+      if (p.id === id) {
+        const nuevoEstado: 'Pendiente' | 'Completado' = p.estado === 'Pendiente' ? 'Completado' : 'Pendiente'
+        return { ...p, estado: nuevoEstado }
+      }
+      return p
+    })
+    setPagosProgramados(actualizados)
+    localStorage.setItem('cobranza_pagos_programados', JSON.stringify(actualizados))
+    toast.success('Estado del pago actualizado.')
+  }
 
-  if (loading) {
-    return (
-      <div className="flex h-[50vh] flex-col items-center justify-center gap-2">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
-        <p className="text-sm text-gray-500 font-medium">Cargando pasarela de cobros...</p>
-      </div>
-    );
+  const eliminarPago = (id: string) => {
+    const actualizados = pagosProgramados.filter((p) => p.id !== id)
+    setPagosProgramados(actualizados)
+    localStorage.setItem('cobranza_pagos_programados', JSON.stringify(actualizados))
+    toast.success('Registro eliminado.')
+  }
+
+  // Manejo de Teclado en Búsqueda
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showSuggestions || sugerenciasClientes.length === 0) return
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setSelectedIndex((prev) => (prev < sugerenciasClientes.length - 1 ? prev + 1 : prev))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setSelectedIndex((prev) => (prev > 0 ? prev - 1 : -1))
+    } else if (e.key === 'Enter') {
+      if (selectedIndex >= 0 && selectedIndex < sugerenciasClientes.length) {
+        e.preventDefault()
+        setSearchTerm(sugerenciasClientes[selectedIndex])
+        setShowSuggestions(false)
+      }
+    } else if (e.key === 'Escape') {
+      setShowSuggestions(false)
+    }
   }
 
   return (
     <div className="space-y-6 p-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-800">Gestión de Pagos</h1>
-        <p className="text-sm text-gray-500">Programa abonos directamente en la tabla ingresando los montos y las fechas estimadas.</p>
+      {/* HEADER PAGE */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 print:hidden">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">Gestión de Pagos & Cronogramas</h1>
+          <p className="text-sm text-gray-500">Programa abonos directamente en la cartera o exporta reportes para gerencia.</p>
+        </div>
+
+        {/* BOTONES EXPORTAR */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={exportToExcel}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 text-white rounded-xl font-bold text-xs hover:bg-emerald-700 transition shadow-sm"
+          >
+            <Download className="h-4 w-4" /> Excel
+          </button>
+          <button
+            onClick={handlePrintPDF}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-gray-800 text-white rounded-xl font-bold text-xs hover:bg-gray-900 transition shadow-sm"
+          >
+            <Printer className="h-4 w-4" /> Imprimir / PDF
+          </button>
+        </div>
       </div>
 
-      <div className="rounded-3xl border border-gray-100 bg-white p-6 shadow-sm">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
-          <div className="flex items-center gap-2">
-            <h3 className="font-bold text-gray-800 text-sm mr-2">Cartera Activa</h3>
-            {subFilter !== 'TODO' && (
-              <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-bold border ${
-                subFilter === 'MORA' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200'
-              }`}>
-                Viendo: {subFilter === 'MORA' ? 'Solo en Mora' : 'Solo Al Día'}
-                <button onClick={() => setSubFilter('TODO')} className="hover:text-gray-900 ml-0.5">
-                  <XCircle className="h-3 w-3 fill-current" />
-                </button>
-              </span>
-            )}
+      {/* METRICAS KPI */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 print:hidden">
+        <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm flex items-center gap-3">
+          <div className="p-3 bg-purple-50 text-purple-600 rounded-xl"><DollarSign className="h-6 w-6" /></div>
+          <div>
+            <p className="text-xs font-medium text-gray-400">Total Cobros Pendientes Agendados</p>
+            <p className="text-lg font-bold text-gray-900">S/. {kpis.totalProgramado.toLocaleString('es-PE', { minimumFractionDigits: 2 })}</p>
           </div>
+        </div>
+        <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm flex items-center gap-3">
+          <div className="p-3 bg-blue-50 text-blue-600 rounded-xl"><Calendar className="h-6 w-6" /></div>
+          <div>
+            <p className="text-xs font-medium text-gray-400">Compromisos Agendados</p>
+            <p className="text-lg font-bold text-gray-900">{kpis.cantidadAgendados} Registros</p>
+          </div>
+        </div>
+      </div>
 
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <button 
-              onClick={() => {
-                localStorage.removeItem('cobranza_ediciones_monto');
-                setInputsMonto({});
-                toast.success('Se han limpiado todas las casillas manuales.');
-              }}
-              className="text-[11px] font-medium text-red-500 border border-red-200 hover:bg-red-50 px-2.5 py-2 rounded-xl transition"
+      {/* CARTERA TABLA */}
+      <div className="rounded-3xl border border-gray-100 bg-white p-6 shadow-sm print:hidden">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+          <h3 className="font-bold text-gray-800 text-sm">Documentos en Cartera</h3>
+
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            {/* Filtro por Estado */}
+            <select
+              value={subFilter}
+              onChange={(e) => setSubFilter(e.target.value)}
+              className="rounded-xl border border-gray-200 bg-white py-1.5 px-3 text-xs outline-none"
             >
-              Vaciar Casillas
-            </button>
+              <option value="TODO">Todos los Docs</option>
+              <option value="MORA">En Mora</option>
+              <option value="ALDIA">Al Día</option>
+            </select>
 
-            {/* BUSCADOR CON AUTOCOMPLETADO */}
-            <div ref={searchContainerRef} className="relative w-full sm:w-72">
-              <div className="relative">
-                <Search className="absolute inset-y-0 left-3 h-4 w-4 text-gray-400 self-center my-auto pointer-events-none" />
-                <input
-                  type="text"
-                  placeholder="Filtrar por cliente, rep. o documento..."
-                  value={searchTerm}
-                  onChange={(e) => {
-                    setSearchTerm(e.target.value);
-                    setShowSuggestions(true);
-                    setSelectedIndex(-1);
-                  }}
-                  onFocus={() => setShowSuggestions(true)}
-                  onKeyDown={handleKeyDown}
-                  className="w-full rounded-xl border border-gray-200 bg-white py-2 pl-9 pr-8 text-xs outline-none transition focus:border-blue-500"
-                />
-                {searchTerm && (
-                  <button
-                    onClick={() => {
-                      setSearchTerm('');
-                      setShowSuggestions(false);
-                    }}
-                    className="absolute inset-y-0 right-2.5 my-auto h-4 w-4 flex items-center justify-center text-gray-400 hover:text-gray-600"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
+            {/* Filtro Vendedor */}
+            <select
+              value={repFilter}
+              onChange={(e) => setRepFilter(e.target.value)}
+              className="rounded-xl border border-gray-200 bg-white py-1.5 px-3 text-xs outline-none"
+            >
+              <option value="TODOS">Todos los Vendedores</option>
+              {vendedoresUnicos.map((v, i) => <option key={i} value={v}>{v}</option>)}
+            </select>
 
-              {/* MENÚ DE SUGERENCIAS */}
-              {showSuggestions && suggestions.length > 0 && (
-                <div className="absolute z-50 mt-1.5 w-full rounded-2xl border border-gray-100 bg-white shadow-lg overflow-hidden py-1">
-                  {suggestions.map((item, idx) => (
-                    <button
+            {/* Buscador Autocompletado */}
+            <div ref={searchContainerRef} className="relative w-full sm:w-64">
+              <input
+                type="text"
+                placeholder="Buscar cliente, doc..."
+                value={searchTerm}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value)
+                  setShowSuggestions(true)
+                  setSelectedIndex(-1)
+                }}
+                onFocus={() => setShowSuggestions(true)}
+                onKeyDown={handleKeyDown}
+                className="w-full rounded-xl border border-gray-200 py-1.5 px-3 text-xs outline-none focus:border-blue-500"
+              />
+              {searchTerm && (
+                <button 
+                  onClick={() => setSearchTerm('')} 
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+
+              {/* LISTA SUGERENCIAS */}
+              {showSuggestions && sugerenciasClientes.length > 0 && (
+                <div className="absolute left-0 right-0 top-full mt-1 z-20 rounded-xl bg-white border border-gray-100 shadow-xl overflow-hidden text-xs">
+                  {sugerenciasClientes.map((cliente, idx) => (
+                    <div
                       key={idx}
-                      type="button"
-                      onClick={() => handleSelectSuggestion(item.label)}
-                      onMouseEnter={() => setSelectedIndex(idx)}
-                      className={`w-full text-left px-3 py-1.5 text-xs flex flex-col transition ${
-                        idx === selectedIndex ? 'bg-blue-50 text-blue-900 font-semibold' : 'text-gray-700 hover:bg-gray-50'
+                      onClick={() => {
+                        setSearchTerm(cliente)
+                        setShowSuggestions(false)
+                      }}
+                      className={`p-2 cursor-pointer transition ${
+                        idx === selectedIndex ? 'bg-blue-50 font-bold text-blue-600' : 'hover:bg-gray-50 text-gray-700'
                       }`}
                     >
-                      <span className="font-medium truncate">{item.label}</span>
-                      <span className="text-[10px] text-gray-400">{item.subLabel}</span>
-                    </button>
+                      {cliente}
+                    </div>
                   ))}
                 </div>
               )}
@@ -380,111 +404,136 @@ export default function PagosPage() {
           </div>
         </div>
 
+        {/* Tabla Operativa */}
         <div className="overflow-x-auto border border-gray-50 rounded-xl text-xs">
-          <table className="w-full text-left border-collapse min-w-[1100px]">
+          <table className="w-full text-left border-collapse">
             <thead className="bg-gray-50 font-semibold text-gray-600 border-b border-gray-100">
               <tr>
-                <th className="p-3 w-[20%]">Cliente / Rep.</th>
-                <th className="p-3 w-[10%] text-center">Estado (Mora)</th>
-                <th className="p-3 w-[11%]">Nro. Documento</th>
-                <th className="p-3 text-right w-[10%]">Saldo Excel</th>
-                <th className="p-3 w-[12%] text-blue-600 bg-blue-50/30">Monto Manual (S/.)</th>
-                <th className="p-3 w-[12%] text-blue-600 bg-blue-50/30">Fecha Prog.</th>
-                <th className="p-3 text-right w-[11%] bg-gray-100/50 text-gray-700">Saldo Restante</th>
-                <th className="p-3 w-[10%]">Vía Canal</th>
-                <th className="p-3 text-center w-[8%]">Acción</th>
+                <th className="p-3">Cliente</th>
+                <th className="p-3">Documento</th>
+                <th className="p-3 text-right">Saldo</th>
+                <th className="p-3 w-[15%]">Monto Programar</th>
+                <th className="p-3 w-[15%]">Canal Pago</th>
+                <th className="p-3 w-[15%]">Fecha</th>
+                <th className="p-3 text-center">Acción</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50 text-gray-700">
-              {filteredRows.slice(0, 60).map((row: any, index: number) => {
-                const rowId = row.id || `row-${index}`;
-                const docNum = row.documento || row.doc || row.num_doc || 'S/N';
-                const diasMora = Number(row.dias_mora || 0);
-                
-                const saldoExcel = Number(row.saldo || 0);
-                const montoManual = parseFloat(inputsMonto[rowId] || '0');
-                const saldoRestante = saldoExcel - (isNaN(montoManual) ? 0 : montoManual);
-
+            <tbody className="divide-y divide-gray-50">
+              {filteredRows.slice(0, 30).map((row: any, index: number) => {
+                const rowId = row.id || `row-${index}`
                 return (
                   <tr key={rowId} className="hover:bg-gray-50/40 transition">
-                    <td className="p-3">
-                      <div className="font-bold text-gray-900 truncate max-w-[180px]">{row.cliente}</div>
-                      <div className="text-[10px] text-gray-400 mt-0.5">Rep: {row.representante || row.vendedor || '-'}</div>
-                    </td>
-                    <td className="p-3 text-center">
-                      <div className="flex flex-col items-center gap-0.5">
-                        {getMoraBadge(diasMora)}
-                        {diasMora > 0 && <span className="text-[9px] text-gray-400 font-medium">({diasMora} días)</span>}
-                      </div>
-                    </td>
-                    <td className="p-3">
-                      <span className="inline-flex items-center gap-1 font-mono text-gray-600 bg-gray-100 px-2 py-0.5 rounded text-[11px]">
-                        <FileText className="h-3 w-3 text-gray-400" />{docNum}
-                      </span>
-                    </td>
-                    <td className="p-3 text-right font-semibold text-gray-900">
-                      S/. {saldoExcel.toLocaleString('es-PE', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="p-2 bg-blue-50/10">
+                    <td className="p-3 font-bold text-gray-900">{row.cliente}</td>
+                    <td className="p-3 font-mono text-gray-500">{row.documento || row.doc || 'S/N'}</td>
+                    <td className="p-3 text-right font-semibold">S/. {Number(row.saldo || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
+                    <td className="p-2">
                       <input
                         type="number"
-                        step="0.01"
                         placeholder="0.00"
                         value={inputsMonto[rowId] || ''}
-                        onChange={(e) => handleMontoChange(rowId, e.target.value)}
-                        className="w-full rounded-lg border border-gray-200 py-1.5 px-2 font-bold text-gray-900 focus:border-blue-500 outline-none"
+                        onChange={(e) => handleInputChange(rowId, 'monto', e.target.value)}
+                        className="w-full rounded-lg border border-gray-200 py-1 px-2 font-bold text-gray-900 outline-none focus:border-blue-500"
                       />
-                    </td>
-                    <td className="p-2 bg-blue-50/10">
-                      <input
-                        type="date"
-                        value={inputsFecha[rowId] ?? ''}
-                        onChange={(e) => handleFechaChange(rowId, e.target.value)}
-                        className="w-full rounded-lg border border-gray-200 py-1.5 px-2 text-gray-700 focus:border-blue-500 outline-none"
-                      />
-                    </td>
-                    <td className={`p-3 text-right font-bold bg-gray-50/40 ${saldoRestante < 0 ? 'text-red-600' : 'text-gray-900'}`}>
-                      S/. {saldoRestante.toLocaleString('es-PE', { minimumFractionDigits: 2 })}
                     </td>
                     <td className="p-2">
                       <select
-                        value={inputsMetodo[rowId] ?? 'Transferencia BCP'}
-                        onChange={(e) => handleMetodoChange(rowId, e.target.value)}
-                        className="w-full rounded-lg border border-gray-200 py-1.5 px-1 bg-white text-[11px] outline-none"
+                        value={inputsMetodo[rowId] || 'Transferencia BCP'}
+                        onChange={(e) => handleInputChange(rowId, 'metodo', e.target.value)}
+                        className="w-full rounded-lg border border-gray-200 py-1 px-2 text-gray-700 outline-none"
                       >
-                        <option value="Transferencia BCP">Transf. BCP</option>
-                        <option value="Transferencia BBVA">Transf. BBVA</option>
-                        <option value="Banco de la Nación">Depo. BN</option>
-                        <option value="Efectivo Cobrador">Efectivo</option>
+                        <option value="Transferencia BCP">Transferencia BCP</option>
+                        <option value="Yape / Plin">Yape / Plin</option>
+                        <option value="Efectivo">Efectivo</option>
+                        <option value="Cheque">Cheque</option>
                       </select>
                     </td>
+                    <td className="p-2">
+                      <input
+                        type="date"
+                        value={inputsFecha[rowId] || ''}
+                        onChange={(e) => handleInputChange(rowId, 'fecha', e.target.value)}
+                        className="w-full rounded-lg border border-gray-200 py-1 px-2 text-gray-700 outline-none"
+                      />
+                    </td>
                     <td className="p-3 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        <a
-                          href={getWhatsAppUrl(row)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="p-1.5 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition shadow-sm"
-                          title="Enviar mensaje por WhatsApp"
-                        >
-                          <MessageSquare className="h-4 w-4" />
-                        </a>
-                        <button 
-                          onClick={() => handleProgramarFila(row, index)} 
-                          className="p-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition shadow-sm"
-                          title="Programar cobro"
-                        >
-                          <Check className="h-4 w-4" />
-                        </button>
-                      </div>
+                      <button
+                        onClick={() => handleProgramarFila(row, index)}
+                        className="p-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
+                        title="Agendar cobro"
+                      >
+                        <Check className="h-4 w-4" />
+                      </button>
                     </td>
                   </tr>
-                );
+                )
               })}
-              {filteredRows.length === 0 && (
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* CRONOGRAMA AGENDADO (PDF & PRINT READY) */}
+      <div className="rounded-3xl border border-gray-100 bg-white p-6 shadow-sm print:shadow-none print:border-none">
+        <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 text-sm">
+          <Calendar className="h-4 w-4 text-blue-500" /> Cronograma de Compromisos Agendados
+        </h3>
+        <div className="overflow-x-auto text-xs">
+          <table className="w-full text-left border-collapse">
+            <thead className="bg-gray-50 font-semibold text-gray-600 border-b border-gray-100">
+              <tr>
+                <th className="p-3">Cliente</th>
+                <th className="p-3">Documento</th>
+                <th className="p-3">Representante</th>
+                <th className="p-3">Fecha Prog.</th>
+                <th className="p-3">Canal</th>
+                <th className="p-3 text-right">Monto</th>
+                <th className="p-3 text-center print:hidden">Estado</th>
+                <th className="p-3 text-center print:hidden">Acciones</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50 text-gray-700">
+              {pagosProgramados.map((pago) => (
+                <tr key={pago.id} className="hover:bg-gray-50/40 transition">
+                  <td className="p-3 font-bold text-gray-900">{pago.cliente}</td>
+                  <td className="p-3 font-mono text-gray-500">{pago.documento}</td>
+                  <td className="p-3 text-gray-500">{pago.representante}</td>
+                  <td className="p-3 font-semibold">{pago.fechaProgramada}</td>
+                  <td className="p-3 text-gray-500">{pago.metodoPago}</td>
+                  <td className="p-3 text-right font-black text-blue-600">S/. {pago.montoProgramado.toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
+                  <td className="p-3 text-center print:hidden">
+                    <span 
+                      onClick={() => toggleEstadoPago(pago.id)}
+                      className={`cursor-pointer px-2 py-0.5 rounded text-[10px] font-bold transition ${
+                        pago.estado === 'Completado' 
+                          ? 'bg-green-100 text-green-700 hover:bg-green-200' 
+                          : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                      }`}
+                    >
+                      {pago.estado}
+                    </span>
+                  </td>
+                  <td className="p-3 text-center print:hidden flex justify-center gap-1">
+                    <button
+                      onClick={() => toggleEstadoPago(pago.id)}
+                      className="p-1 rounded text-gray-400 hover:text-green-600 hover:bg-green-50"
+                      title="Marcar como Completado/Pendiente"
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => eliminarPago(pago.id)}
+                      className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50"
+                      title="Eliminar registro"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {pagosProgramados.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="p-6 text-center text-gray-400">
-                    No se encontraron documentos para los filtros seleccionados.
+                  <td colSpan={8} className="p-6 text-center text-gray-400">
+                    No hay pagos ni compromisos agendados por el momento.
                   </td>
                 </tr>
               )}
@@ -492,51 +541,6 @@ export default function PagosPage() {
           </table>
         </div>
       </div>
-
-      {/* CRONOGRAMA */}
-      <div className="rounded-3xl border border-gray-100 bg-white p-6 shadow-sm">
-        <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 text-sm">
-          <Calendar className="h-4 w-4 text-blue-500" /> Cronograma de Compromisos Agendados
-        </h3>
-        {pagosProgramados.length === 0 ? (
-          <p className="text-xs text-gray-400 py-6 text-center">No has agendado ningún cobro todavía.</p>
-        ) : (
-          <div className="overflow-x-auto text-xs">
-            <table className="w-full text-left border-collapse min-w-[800px]">
-              <thead className="bg-gray-50 font-semibold text-gray-600 border-b border-gray-100">
-                <tr>
-                  <th className="p-3">Cliente</th>
-                  <th className="p-3">Documento</th>
-                  <th className="p-3">Representante</th>
-                  <th className="p-3">Fecha Prog.</th>
-                  <th className="p-3">Canal</th>
-                  <th className="p-3 text-right">Monto Asignado</th>
-                  <th className="p-3 text-center">Estado</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50 text-gray-700">
-                {pagosProgramados.map((pago) => (
-                  <tr key={pago.id} className={`hover:bg-gray-50/50 transition ${pago.estado === 'Completado' ? 'bg-green-50/30' : ''}`}>
-                    <td className="p-3 font-bold text-gray-900">{pago.cliente}</td>
-                    <td className="p-3 font-mono text-gray-500">{pago.documento}</td>
-                    <td className="p-3 text-gray-500">{pago.representante}</td>
-                    <td className="p-3 text-gray-600 font-semibold">{pago.fechaProgramada}</td>
-                    <td className="p-3 text-gray-500">{pago.metodoPago}</td>
-                    <td className="p-3 text-right font-black text-blue-600 text-sm">S/. {pago.montoProgramado.toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
-                    <td className="p-3 text-center">
-                      {pago.estado === 'Pendiente' ? (
-                        <button onClick={() => handleCompletarPago(pago.id)} className="bg-amber-50 text-amber-700 px-2.5 py-0.5 rounded-md font-semibold hover:bg-green-100 hover:text-green-700 transition">Pendiente</button>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 bg-green-100 text-green-700 px-2.5 py-0.5 rounded-md font-semibold"><CheckCircle2 className="h-3 w-3" /> Cobrado</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
     </div>
-  );
+  )
 }

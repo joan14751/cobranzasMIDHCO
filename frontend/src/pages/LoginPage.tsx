@@ -28,7 +28,7 @@ function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
       <div className="w-full max-w-md rounded-xl border bg-white p-8 shadow-sm">
         <h1 className="mb-2 text-2xl font-semibold">Iniciar sesión</h1>
-        <p className="mb-6 text-sm text-slate-500">Accede a Cobranza App</p>
+        <p className="mb-6 text-sm text-slate-500">Accede a MIDHCO S.A.C Cobranza App</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
