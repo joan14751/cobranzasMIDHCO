@@ -84,6 +84,15 @@ export default function DashboardPage() {
     loadDashboardData();
   }, []);
 
+  // Extrae la lista de representantes únicos para el autocompletado del buscador
+  const listaRepresentantes = Array.from(
+    new Set(
+      allRows
+        .map((row: any) => row.representante || row.vendedor)
+        .filter((rep: any) => rep && typeof rep === 'string' && rep.trim() !== '')
+    )
+  ).sort();
+
   const filteredRows = allRows.filter((row: any) => {
     const term = searchTerm.toLowerCase().trim();
     const representante = (row.representante || row.vendedor || '').toLowerCase();
@@ -93,7 +102,7 @@ export default function DashboardPage() {
   const clientesActivos = new Set(filteredRows.map((row: any) => row.ruc_dni || row.cliente)).size;
   
   let saldoPendienteTotal = 0;
-  let montoEnMoraTotal = 0;       
+  let montoEnMoraTotal = 0;      
   let montoPorVencerTotal = 0;    
   let conteoAlDia = 0;
   let conteoEnMora = 0;
@@ -194,18 +203,26 @@ export default function DashboardPage() {
         </button>
       </div>
 
-      {/* BUSCADOR */}
+      {/* BUSCADOR CON AUTOCOMPLETADO */}
       <div className="relative max-w-md">
         <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
           <Search className="h-4 w-4 text-gray-400 dark:text-slate-500" />
         </div>
         <input
           type="text"
+          list="representantes-list"
           placeholder="Buscar por representante..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="w-full rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 py-2.5 pl-10 pr-4 text-sm text-gray-900 dark:text-slate-100 placeholder-gray-400 dark:placeholder-slate-500 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/30"
         />
+
+        {/* LISTA DE SUGERENCIAS AUTOCOMPLETABLES */}
+        <datalist id="representantes-list">
+          {listaRepresentantes.map((rep: any, idx: number) => (
+            <option key={idx} value={rep} />
+          ))}
+        </datalist>
       </div>
 
       {/* METRIC CARDS */}

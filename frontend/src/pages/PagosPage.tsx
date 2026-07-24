@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
 import { getDocumentos } from '../lib/supabaseService';
 import { parseCobranzaExcelFile } from '../lib/excelService';
-import { Search, Calendar, Check, CheckCircle2, FileText, AlertCircle, XCircle, MessageSquare } from 'lucide-react';
+import { Search, Calendar, Check, CheckCircle2, FileText, AlertCircle, XCircle, MessageSquare, X } from 'lucide-react';
 
 interface DocumentoExtendido {
   id: string;
@@ -42,6 +42,11 @@ export default function PagosPage() {
   const [inputsMonto, setInputsMonto] = useState<{ [key: string]: string }>({});
   const [inputsFecha, setInputsFecha] = useState<{ [key: string]: string }>({});
   const [inputsMetodo, setInputsMetodo] = useState<{ [key: string]: string }>({});
+
+  // Estados para el autocompletado
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(-1);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (location.state?.searchDocumento) {
@@ -111,6 +116,70 @@ export default function PagosPage() {
   };
 
   useEffect(() => { loadExcelData(); }, []);
+
+  // Cerrar sugerencias al hacer clic fuera del input
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Generar sugerencias únicas (clientes, representantes y documentos)
+  const suggestions = useMemo(() => {
+    const term = searchTerm.toLowerCase().trim();
+    if (!term) return [];
+
+    const setSugerencias = new Map<string, { label: string; subLabel: string }>();
+
+    allRows.forEach((row: any) => {
+      const cliente = (row.cliente || '').trim();
+      const rep = (row.representante || row.vendedor || '').trim();
+      const doc = (row.documento || row.doc || row.num_doc || '').trim();
+
+      if (cliente && cliente.toLowerCase().includes(term)) {
+        setSugerencias.set(`cli-${cliente}`, { label: cliente, subLabel: 'Cliente' });
+      }
+      if (rep && rep.toLowerCase().includes(term) && rep !== '-') {
+        setSugerencias.set(`rep-${rep}`, { label: rep, subLabel: 'Representante' });
+      }
+      if (doc && doc.toLowerCase().includes(term)) {
+        setSugerencias.set(`doc-${doc}`, { label: doc, subLabel: `Doc • ${cliente}` });
+      }
+    });
+
+    return Array.from(setSugerencias.values()).slice(0, 8);
+  }, [searchTerm, allRows]);
+
+  const handleSelectSuggestion = (val: string) => {
+    setSearchTerm(val);
+    setShowSuggestions(false);
+    setSelectedIndex(-1);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showSuggestions || suggestions.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev < suggestions.length - 1 ? prev + 1 : 0));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev > 0 ? prev - 1 : suggestions.length - 1));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (selectedIndex >= 0 && selectedIndex < suggestions.length) {
+        handleSelectSuggestion(suggestions[selectedIndex].label);
+      } else {
+        setShowSuggestions(false);
+      }
+    } else if (e.key === 'Escape') {
+      setShowSuggestions(false);
+    }
+  };
 
   const handleMontoChange = (rowId: string, value: string) => {
     const nuevosMontos = { ...inputsMonto, [rowId]: value };
@@ -258,15 +327,55 @@ export default function PagosPage() {
               Vaciar Casillas
             </button>
 
-            <div className="relative w-full sm:w-72">
-              <Search className="absolute inset-y-0 left-3 h-4 w-4 text-gray-400 self-center my-auto" />
-              <input
-                type="text"
-                placeholder="Filtrar por cliente, rep. o documento..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full rounded-xl border border-gray-200 bg-white py-2 pl-9 pr-4 text-xs outline-none transition focus:border-blue-500"
-              />
+            {/* BUSCADOR CON AUTOCOMPLETADO */}
+            <div ref={searchContainerRef} className="relative w-full sm:w-72">
+              <div className="relative">
+                <Search className="absolute inset-y-0 left-3 h-4 w-4 text-gray-400 self-center my-auto pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Filtrar por cliente, rep. o documento..."
+                  value={searchTerm}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    setShowSuggestions(true);
+                    setSelectedIndex(-1);
+                  }}
+                  onFocus={() => setShowSuggestions(true)}
+                  onKeyDown={handleKeyDown}
+                  className="w-full rounded-xl border border-gray-200 bg-white py-2 pl-9 pr-8 text-xs outline-none transition focus:border-blue-500"
+                />
+                {searchTerm && (
+                  <button
+                    onClick={() => {
+                      setSearchTerm('');
+                      setShowSuggestions(false);
+                    }}
+                    className="absolute inset-y-0 right-2.5 my-auto h-4 w-4 flex items-center justify-center text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* MENÚ DE SUGERENCIAS */}
+              {showSuggestions && suggestions.length > 0 && (
+                <div className="absolute z-50 mt-1.5 w-full rounded-2xl border border-gray-100 bg-white shadow-lg overflow-hidden py-1">
+                  {suggestions.map((item, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => handleSelectSuggestion(item.label)}
+                      onMouseEnter={() => setSelectedIndex(idx)}
+                      className={`w-full text-left px-3 py-1.5 text-xs flex flex-col transition ${
+                        idx === selectedIndex ? 'bg-blue-50 text-blue-900 font-semibold' : 'text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      <span className="font-medium truncate">{item.label}</span>
+                      <span className="text-[10px] text-gray-400">{item.subLabel}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

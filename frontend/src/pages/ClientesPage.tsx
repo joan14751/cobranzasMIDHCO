@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { getDocumentos } from '../lib/supabaseService'
 import { parseCobranzaExcelFile } from '../lib/excelService'
-import { Search, User, Building2, Wallet, Calendar } from 'lucide-react'
+import { Search, User, Building2, Wallet, Calendar, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 interface DocumentoExtendido {
@@ -17,8 +17,8 @@ interface ClienteConsolidado {
   saldoTotal: number;
   documentosAsociados: number;
   maxDiasMora: number;
-  docsAlDia: number;   // <-- NUEVO
-  docsEnMora: number;  // <-- NUEVO
+  docsAlDia: number;
+  docsEnMora: number;
 }
 
 export default function ClientesPage() {
@@ -26,6 +26,11 @@ export default function ClientesPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // Estados para el autocompletado
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const [selectedIndex, setSelectedIndex] = useState(-1)
+  const searchContainerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const loadAndProcessClientes = async () => {
@@ -69,15 +74,14 @@ export default function ClientesPage() {
               saldoTotal: 0,
               documentosAsociados: 0,
               maxDiasMora: 0,
-              docsAlDia: 0,   // <-- Inicializar
-              docsEnMora: 0   // <-- Inicializar
+              docsAlDia: 0,
+              docsEnMora: 0
             }
           }
 
           clientesMap[nombreCliente].saldoTotal += saldo
           clientesMap[nombreCliente].documentosAsociados += 1
           
-          // Contabilizar según los días de mora de la fila
           if (diasMora > 0) {
             clientesMap[nombreCliente].docsEnMora += 1
           } else {
@@ -105,6 +109,63 @@ export default function ClientesPage() {
     loadAndProcessClientes()
   }, [])
 
+  // Cerrar sugerencias al hacer clic fuera del input
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
+        setShowSuggestions(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Generar sugerencias únicas (clientes y representantes)
+  const suggestions = useMemo(() => {
+    const term = searchTerm.toLowerCase().trim()
+    if (!term) return []
+
+    const setSugerencias = new Map<string, { label: string; subLabel: string }>()
+
+    clientes.forEach((c) => {
+      if (c.nombre.toLowerCase().includes(term)) {
+        setSugerencias.set(`cli-${c.nombre}`, { label: c.nombre, subLabel: `Cliente • Rep: ${c.representante}` })
+      }
+      if (c.representante.toLowerCase().includes(term) && c.representante !== 'No Asignado') {
+        setSugerencias.set(`rep-${c.representante}`, { label: c.representante, subLabel: 'Representante' })
+      }
+    })
+
+    return Array.from(setSugerencias.values()).slice(0, 8)
+  }, [searchTerm, clientes])
+
+  const handleSelectSuggestion = (val: string) => {
+    setSearchTerm(val)
+    setShowSuggestions(false)
+    setSelectedIndex(-1)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showSuggestions || suggestions.length === 0) return
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setSelectedIndex((prev) => (prev < suggestions.length - 1 ? prev + 1 : 0))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setSelectedIndex((prev) => (prev > 0 ? prev - 1 : suggestions.length - 1))
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      if (selectedIndex >= 0 && selectedIndex < suggestions.length) {
+        handleSelectSuggestion(suggestions[selectedIndex].label)
+      } else {
+        setShowSuggestions(false)
+      }
+    } else if (e.key === 'Escape') {
+      setShowSuggestions(false)
+    }
+  }
+
   const filteredClientes = clientes.filter((c) => {
     const term = searchTerm.toLowerCase().trim()
     return c.nombre.toLowerCase().includes(term) || c.representante.toLowerCase().includes(term)
@@ -126,15 +187,55 @@ export default function ClientesPage() {
         <p className="text-sm text-gray-500">Listado unificado extraído de la última plantilla de cobranza cargada.</p>
       </div>
 
-      <div className="relative max-w-md">
-        <Search className="absolute inset-y-0 left-3 h-4 w-4 text-gray-400 self-center my-auto" />
-        <input
-          type="text"
-          placeholder="Buscar por nombre de cliente o representante..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-        />
+      {/* BUSCADOR CON AUTOCOMPLETADO */}
+      <div ref={searchContainerRef} className="relative max-w-md">
+        <div className="relative">
+          <Search className="absolute inset-y-0 left-3 h-4 w-4 text-gray-400 self-center my-auto pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Buscar por nombre de cliente o representante..."
+            value={searchTerm}
+            onChange={(e) => {
+              setSearchTerm(e.target.value)
+              setShowSuggestions(true)
+              setSelectedIndex(-1)
+            }}
+            onFocus={() => setShowSuggestions(true)}
+            onKeyDown={handleKeyDown}
+            className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-10 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          />
+          {searchTerm && (
+            <button
+              onClick={() => {
+                setSearchTerm('')
+                setShowSuggestions(false)
+              }}
+              className="absolute inset-y-0 right-3 my-auto h-5 w-5 flex items-center justify-center text-gray-400 hover:text-gray-600"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
+        {/* MENÚ DE SUGERENCIAS */}
+        {showSuggestions && suggestions.length > 0 && (
+          <div className="absolute z-50 mt-1.5 w-full rounded-2xl border border-gray-100 bg-white shadow-lg overflow-hidden py-1">
+            {suggestions.map((item, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => handleSelectSuggestion(item.label)}
+                onMouseEnter={() => setSelectedIndex(idx)}
+                className={`w-full text-left px-4 py-2 text-xs flex flex-col transition ${
+                  idx === selectedIndex ? 'bg-blue-50 text-blue-900 font-semibold' : 'text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <span className="font-medium truncate">{item.label}</span>
+                <span className="text-[10px] text-gray-400">{item.subLabel}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {loading ? (
