@@ -4,7 +4,7 @@ import { parseCobranzaExcelFile } from '../lib/excelService'
 import { 
   Search, User, Building2, Wallet, Calendar, X, FileText, 
   History, MessageSquarePlus, CheckCircle2, ShieldAlert, MapPin, 
-  Copy, Check, Printer, Store, Map as MapIcon
+  Copy, Check, Printer, Store, Map as MapIcon, Edit2, Trash2, Save
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { toast } from 'react-hot-toast'
@@ -62,6 +62,10 @@ export default function ClientesPage() {
     return saved ? JSON.parse(saved) : []
   })
   const [nuevaNota, setNuevaNota] = useState<string>('')
+
+  // Estados para edición de notas
+  const [editingNotaId, setEditingNotaId] = useState<string | null>(null)
+  const [textoEditado, setTextoEditado] = useState<string>('')
 
   useEffect(() => {
     const loadAndProcessClientes = async () => {
@@ -164,7 +168,9 @@ export default function ClientesPage() {
     setTimeout(() => setCopiedRuc(null), 2000)
   }
 
-  // Guardar bitácora
+  // --- MANEJO DE BITÁCORA ---
+
+  // 1. Agregar Nota
   const handleAgregarNota = () => {
     if (!nuevaNota.trim() || !selectedClienteModal) return
     const nueva: NotaBitacora = {
@@ -177,6 +183,42 @@ export default function ClientesPage() {
     setNotas(actualizadas)
     localStorage.setItem('cobranza_bitacora_notas', JSON.stringify(actualizadas))
     setNuevaNota('')
+    toast.success('Anotación guardada')
+  }
+
+  // 2. Iniciar Edición de Nota
+  const handleIniciarEdicion = (nota: NotaBitacora) => {
+    setEditingNotaId(nota.id)
+    setTextoEditado(nota.texto)
+  }
+
+  // 3. Guardar Edición de Nota
+  const handleGuardarEdicion = (id: string) => {
+    if (!textoEditado.trim()) return
+    const actualizadas = notas.map((n: NotaBitacora) => {
+      if (n.id === id) {
+        return {
+          ...n,
+          texto: textoEditado.trim(),
+          fecha: `${n.fecha} (editado: ${new Date().toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })})`
+        }
+      }
+      return n
+    })
+    setNotas(actualizadas)
+    localStorage.setItem('cobranza_bitacora_notas', JSON.stringify(actualizadas))
+    setEditingNotaId(null)
+    setTextoEditado('')
+    toast.success('Anotación actualizada')
+  }
+
+  // 4. Eliminar Nota
+  const handleEliminarNota = (id: string) => {
+    if (!window.confirm('¿Estás seguro de que deseas eliminar esta anotación?')) return
+    const actualizadas = notas.filter((n: NotaBitacora) => n.id !== id)
+    setNotas(actualizadas)
+    localStorage.setItem('cobranza_bitacora_notas', JSON.stringify(actualizadas))
+    toast.success('Anotación eliminada')
   }
 
   // KPIs
@@ -563,15 +605,17 @@ export default function ClientesPage() {
                 </div>
               )}
 
-              {/* TAB 2: BITÁCORA */}
+              {/* TAB 2: BITÁCORA CON EDICIÓN Y ELIMINACIÓN */}
               {activeTab === 'bitacora' && (
                 <div className="space-y-4">
+                  {/* Formulario de nueva nota */}
                   <div className="flex gap-2">
                     <input
                       type="text"
                       placeholder="Registrar llamada, promesa de pago..."
                       value={nuevaNota}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNuevaNota(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleAgregarNota() }}
                       className="flex-1 rounded-xl border border-gray-200 p-2.5 outline-none focus:border-blue-500"
                     />
                     <button
@@ -582,20 +626,73 @@ export default function ClientesPage() {
                     </button>
                   </div>
 
+                  {/* Listado de notas filtrado por el cliente actual */}
                   <div className="space-y-2">
                     {notas
                       .filter((n: NotaBitacora) => n.cliente === selectedClienteModal.nombre)
-                      .map((nota: NotaBitacora) => (
-                        <div key={nota.id} className="p-3 bg-amber-50/50 border border-amber-100 rounded-xl space-y-1">
-                          <div className="flex justify-between text-[10px] text-amber-700 font-semibold">
-                            <span>Nota Registrada</span>
-                            <span>{nota.fecha}</span>
+                      .map((nota: NotaBitacora) => {
+                        const isEditing = editingNotaId === nota.id
+
+                        return (
+                          <div key={nota.id} className="p-3 bg-amber-50/50 border border-amber-100 rounded-xl space-y-2">
+                            <div className="flex justify-between items-center text-[10px] text-amber-800 font-semibold">
+                              <span>Anotación de Gestión</span>
+                              <div className="flex items-center gap-2">
+                                <span>{nota.fecha}</span>
+                                {!isEditing && (
+                                  <div className="flex items-center gap-1 border-l border-amber-200 pl-2">
+                                    <button
+                                      onClick={() => handleIniciarEdicion(nota)}
+                                      className="p-1 hover:bg-amber-100 text-amber-800 rounded transition"
+                                      title="Editar nota"
+                                    >
+                                      <Edit2 className="h-3 w-3" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleEliminarNota(nota.id)}
+                                      className="p-1 hover:bg-red-100 text-red-600 rounded transition"
+                                      title="Eliminar nota"
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Contenido editable vs vista normal */}
+                            {isEditing ? (
+                              <div className="space-y-2">
+                                <textarea
+                                  value={textoEditado}
+                                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setTextoEditado(e.target.value)}
+                                  className="w-full text-xs p-2 rounded-lg border border-amber-300 bg-white focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                  rows={2}
+                                />
+                                <div className="flex justify-end gap-1.5">
+                                  <button
+                                    onClick={() => setEditingNotaId(null)}
+                                    className="px-2.5 py-1 text-[11px] font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+                                  >
+                                    Cancelar
+                                  </button>
+                                  <button
+                                    onClick={() => handleGuardarEdicion(nota.id)}
+                                    className="px-2.5 py-1 text-[11px] font-bold text-white bg-amber-600 rounded-lg hover:bg-amber-700 flex items-center gap-1"
+                                  >
+                                    <Save className="h-3 w-3" /> Guardar
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-gray-800 text-xs whitespace-pre-wrap">{nota.texto}</p>
+                            )}
                           </div>
-                          <p className="text-gray-800">{nota.texto}</p>
-                        </div>
-                      ))}
+                        )
+                      })}
+
                     {notas.filter((n: NotaBitacora) => n.cliente === selectedClienteModal.nombre).length === 0 && (
-                      <p className="text-center text-gray-400 py-4">No hay anotaciones previas para este cliente.</p>
+                      <p className="text-center text-gray-400 py-6">No hay anotaciones registradas para este cliente.</p>
                     )}
                   </div>
                 </div>
