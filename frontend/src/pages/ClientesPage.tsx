@@ -4,7 +4,8 @@ import { parseCobranzaExcelFile } from '../lib/excelService'
 import { 
   Search, User, Building2, Wallet, Calendar, X, FileText, 
   History, MessageSquarePlus, CheckCircle2, ShieldAlert, MapPin, 
-  Copy, Check, Printer, Store, Map as MapIcon, Edit2, Trash2, Save
+  Copy, Check, Printer, Store, Map as MapIcon, Edit2, Trash2, Save,
+  BarChart3, MessageCircle, AlertTriangle, Send, Phone, Award, ShieldCheck
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { toast } from 'react-hot-toast'
@@ -52,9 +53,9 @@ export default function ClientesPage() {
   // Autocompletado / Contenedor
   const searchContainerRef = useRef<HTMLDivElement>(null)
 
-  // Modal 360
+  // Modal 360 y pestañas
   const [selectedClienteModal, setSelectedClienteModal] = useState<ClienteConsolidado | null>(null)
-  const [activeTab, setActiveTab] = useState<'docs' | 'bitacora' | 'estado_cuenta'>('docs')
+  const [activeTab, setActiveTab] = useState<'docs' | 'bitacora' | 'estado_cuenta' | 'riesgo' | 'whatsapp'>('docs')
   
   // Bitácora de notas
   const [notas, setNotas] = useState<NotaBitacora[]>(() => {
@@ -62,10 +63,17 @@ export default function ClientesPage() {
     return saved ? JSON.parse(saved) : []
   })
   const [nuevaNota, setNuevaNota] = useState<string>('')
-
-  // Estados para edición de notas
   const [editingNotaId, setEditingNotaId] = useState<string | null>(null)
   const [textoEditado, setTextoEditado] = useState<string>('')
+
+  // Estado para gestión de WhatsApp
+  const [telefonosCliente, setTelefonosCliente] = useState<Record<string, string>>(() => {
+    const saved = localStorage.getItem('cobranza_telefonos_clientes')
+    return saved ? JSON.parse(saved) : {}
+  })
+  const [telefonoActual, setTelefonoActual] = useState<string>('')
+  const [mensajeWhatsapp, setMensajeWhatsapp] = useState<string>('')
+  const [plantillaSeleccionada, setPlantillaSeleccionada] = useState<'suave' | 'aviso' | 'suspension'>('aviso')
 
   useEffect(() => {
     const loadAndProcessClientes = async () => {
@@ -159,6 +167,15 @@ export default function ClientesPage() {
     loadAndProcessClientes()
   }, [])
 
+  // Inicializar teléfono y mensaje cuando se selecciona un cliente
+  useEffect(() => {
+    if (selectedClienteModal) {
+      const telGuardado = telefonosCliente[selectedClienteModal.nombre] || ''
+      setTelefonoActual(telGuardado)
+      generarMensajeWhatsApp('aviso', selectedClienteModal, telGuardado)
+    }
+  }, [selectedClienteModal])
+
   // Copiar RUC
   const copyToClipboard = (text: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -169,8 +186,6 @@ export default function ClientesPage() {
   }
 
   // --- MANEJO DE BITÁCORA ---
-
-  // 1. Agregar Nota
   const handleAgregarNota = () => {
     if (!nuevaNota.trim() || !selectedClienteModal) return
     const nueva: NotaBitacora = {
@@ -186,13 +201,11 @@ export default function ClientesPage() {
     toast.success('Anotación guardada')
   }
 
-  // 2. Iniciar Edición de Nota
   const handleIniciarEdicion = (nota: NotaBitacora) => {
     setEditingNotaId(nota.id)
     setTextoEditado(nota.texto)
   }
 
-  // 3. Guardar Edición de Nota
   const handleGuardarEdicion = (id: string) => {
     if (!textoEditado.trim()) return
     const actualizadas = notas.map((n: NotaBitacora) => {
@@ -200,7 +213,7 @@ export default function ClientesPage() {
         return {
           ...n,
           texto: textoEditado.trim(),
-          fecha: `${n.fecha} (editado: ${new Date().toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })})`
+          fecha: `${n.fecha} (editado)`
         }
       }
       return n
@@ -212,13 +225,48 @@ export default function ClientesPage() {
     toast.success('Anotación actualizada')
   }
 
-  // 4. Eliminar Nota
   const handleEliminarNota = (id: string) => {
     if (!window.confirm('¿Estás seguro de que deseas eliminar esta anotación?')) return
     const actualizadas = notas.filter((n: NotaBitacora) => n.id !== id)
     setNotas(actualizadas)
     localStorage.setItem('cobranza_bitacora_notas', JSON.stringify(actualizadas))
     toast.success('Anotación eliminada')
+  }
+
+  // --- MANEJO DE WHATSAPP ---
+  const handleGuardarTelefono = (telefono: string) => {
+    if (!selectedClienteModal) return
+    setTelefonoActual(telefono)
+    const actualizados = { ...telefonosCliente, [selectedClienteModal.nombre]: telefono }
+    setTelefonosCliente(actualizados)
+    localStorage.setItem('cobranza_telefonos_clientes', JSON.stringify(actualizados))
+  }
+
+  const generarMensajeWhatsApp = (tipo: 'suave' | 'aviso' | 'suspension', cliente: ClienteConsolidado, tel?: string) => {
+    setPlantillaSeleccionada(tipo)
+    const nombreDisplay = cliente.nombreComercial || cliente.nombre
+    const montoFormateado = cliente.saldoTotal.toLocaleString('es-PE', { minimumFractionDigits: 2 })
+    
+    let txt = ''
+    if (tipo === 'suave') {
+      txt = `Hola *${nombreDisplay}*, le saludamos de MIDHCO FARMA. 🌿 Le recordamos amablemente que registra un saldo pendiente de *S/. ${montoFormateado}*. Agradecemos su apoyo con la gestión del abono. ¡Que tenga un excelente día!`
+    } else if (tipo === 'aviso') {
+      txt = `Estimado cliente *${nombreDisplay}*, le informamos que su cuenta presenta documentos pendientes de pago por un monto de *S/. ${montoFormateado}* con *${cliente.maxDiasMora} días de mora*. Le solicitamos regularizar su pago a la brevedad.`
+    } else if (tipo === 'suspension') {
+      txt = `🔴 *AVISO IMPORTANTE - MIDHCO FARMA*\n\nEstimado cliente *${nombreDisplay}*, le informamos que debido a que registra *${cliente.maxDiasMora} días de mora* (Monto: *S/. ${montoFormateado}*), su cuenta ha ingresado a estado de restricción. Para evitar la suspensión de nuevos despachos, rogamos coordinar su pago hoy mismo.`
+    }
+    setMensajeWhatsapp(txt)
+  }
+
+  const handleEnviarWhatsApp = () => {
+    if (!telefonoActual) {
+      toast.error('Por favor ingrese un número de teléfono válido')
+      return
+    }
+    const cleanNum = telefonoActual.replace(/\D/g, '')
+    const fullNum = cleanNum.startsWith('51') ? cleanNum : `51${cleanNum}`
+    const url = `https://wa.me/${fullNum}?text=${encodeURIComponent(mensajeWhatsapp)}`
+    window.open(url, '_blank')
   }
 
   // KPIs
@@ -239,7 +287,6 @@ export default function ClientesPage() {
     return { totalDeuda, montoMoraCritica, totalAlDia }
   }, [clientes])
 
-  // Resumen agrupado por Zona para el componente MapaPeru
   const resumenPorZona = useMemo<Record<string, ResumenZona>>(() => {
     const mapa: Record<string, ResumenZona> = {}
     clientes.forEach((c: ClienteConsolidado) => {
@@ -253,7 +300,6 @@ export default function ClientesPage() {
     return mapa
   }, [clientes])
 
-  // Lista de Representantes y Zonas Únicas
   const representantesUnicos = useMemo(() => {
     const setR = new Set<string>()
     clientes.forEach((c: ClienteConsolidado) => { if (c.representante) setR.add(c.representante) })
@@ -266,7 +312,6 @@ export default function ClientesPage() {
     return Array.from(setZ).sort()
   }, [clientes])
 
-  // Filtro Consolidado
   const filteredClientes = useMemo(() => {
     return clientes.filter((c: ClienteConsolidado) => {
       const term = searchTerm.toLowerCase().trim()
@@ -296,6 +341,38 @@ export default function ClientesPage() {
     if (dias <= 0) return 'text-green-600 bg-green-50 border-green-100'
     if (dias <= 30) return 'text-amber-600 bg-amber-50 border-amber-100'
     return 'text-red-600 bg-red-50 border-red-100 font-bold'
+  }
+
+  // Cálculo de Scoring ABC
+  const getScoringInfo = (c: ClienteConsolidado) => {
+    if (c.maxDiasMora <= 0) {
+      return {
+        score: 'A',
+        label: 'CLIENTE PUNTUAL',
+        color: 'text-green-700 bg-green-100 border-green-300',
+        badge: 'bg-green-600 text-white',
+        desc: 'Excelente historial de cumplimiento. Apto para créditos preferenciales.',
+        lineaSugerida: Math.max(c.saldoTotal * 1.5, 10000)
+      }
+    } else if (c.maxDiasMora <= 30) {
+      return {
+        score: 'B',
+        label: 'RIESGO MODERADO',
+        color: 'text-amber-700 bg-amber-100 border-amber-300',
+        badge: 'bg-amber-600 text-white',
+        desc: 'Demoras ocasionales en pagos. Mantener seguimiento de vencimientos.',
+        lineaSugerida: Math.max(c.saldoTotal * 1.1, 5000)
+      }
+    } else {
+      return {
+        score: 'C',
+        label: 'RIESGO ALTO / CRÍTICO',
+        color: 'text-red-700 bg-red-100 border-red-300',
+        badge: 'bg-red-600 text-white',
+        desc: 'Mora superior a 30 días. Sugerido bloquear nuevos despachos.',
+        lineaSugerida: c.saldoTotal
+      }
+    }
   }
 
   return (
@@ -334,7 +411,7 @@ export default function ClientesPage() {
         </div>
       </div>
 
-      {/* COMPONENTE MAPA DE ZONAS DE PERÚ */}
+      {/* MAPA DE ZONAS */}
       <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-bold text-gray-700 flex items-center gap-1.5">
@@ -356,7 +433,7 @@ export default function ClientesPage() {
         />
       </div>
 
-      {/* BARRA DE FILTROS */}
+      {/* FILTROS */}
       <div className="flex flex-col lg:flex-row gap-3 items-center justify-between bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
         <div ref={searchContainerRef} className="relative w-full lg:w-72">
           <Search className="absolute inset-y-0 left-3 h-4 w-4 text-gray-400 my-auto pointer-events-none" />
@@ -375,7 +452,6 @@ export default function ClientesPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
-          {/* Filtro por Zona */}
           <select
             value={zonaFilter}
             onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setZonaFilter(e.target.value)}
@@ -387,7 +463,6 @@ export default function ClientesPage() {
             ))}
           </select>
 
-          {/* Filtro por Vendedor */}
           <select
             value={repFilter}
             onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setRepFilter(e.target.value)}
@@ -399,7 +474,6 @@ export default function ClientesPage() {
             ))}
           </select>
 
-          {/* Filtro por Rango de Mora */}
           <select
             value={moraRangeFilter}
             onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setMoraRangeFilter(e.target.value)}
@@ -426,102 +500,106 @@ export default function ClientesPage() {
       ) : (
         /* TARJETAS DE CLIENTES */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredClientes.map((cliente: ClienteConsolidado, index: number) => (
-            <div 
-              key={index} 
-              className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm hover:shadow-md transition flex flex-col justify-between gap-4 cursor-pointer relative"
-              onClick={() => setSelectedClienteModal(cliente)}
-            >
-              <div className="space-y-2">
-                {/* Nombre Comercial + Estado Mora */}
-                <div className="flex items-start justify-between gap-2">
-                  <div className="space-y-0.5">
-                    {cliente.nombreComercial && (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold tracking-wider text-blue-600 uppercase bg-blue-50 px-2 py-0.5 rounded-md">
-                        <Store className="h-3 w-3" /> {cliente.nombreComercial}
+          {filteredClientes.map((cliente: ClienteConsolidado, index: number) => {
+            const scoring = getScoringInfo(cliente)
+            return (
+              <div 
+                key={index} 
+                className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm hover:shadow-md transition flex flex-col justify-between gap-4 cursor-pointer relative"
+                onClick={() => setSelectedClienteModal(cliente)}
+              >
+                <div className="space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="space-y-0.5">
+                      {cliente.nombreComercial && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold tracking-wider text-blue-600 uppercase bg-blue-50 px-2 py-0.5 rounded-md">
+                          <Store className="h-3 w-3" /> {cliente.nombreComercial}
+                        </span>
+                      )}
+                      <h3 className="font-bold text-gray-900 text-sm line-clamp-2 hover:text-blue-600 mt-1">
+                        {cliente.nombre}
+                      </h3>
+                    </div>
+
+                    <div className="flex flex-col items-end gap-1">
+                      <span className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded text-[10px] font-mono border whitespace-nowrap ${getMoraColor(cliente.maxDiasMora)}`}>
+                        {cliente.maxDiasMora <= 0 ? 'Al Día' : `${cliente.maxDiasMora}d Mora`}
                       </span>
-                    )}
-                    <h3 className="font-bold text-gray-900 text-sm line-clamp-2 hover:text-blue-600 mt-1">
-                      {cliente.nombre}
-                    </h3>
+                      <span className={`text-[9px] font-black px-1.5 py-0.2 rounded ${scoring.badge}`}>
+                        SCORE {scoring.score}
+                      </span>
+                    </div>
                   </div>
 
-                  <span className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded text-[10px] font-mono border whitespace-nowrap ${getMoraColor(cliente.maxDiasMora)}`}>
-                    {cliente.maxDiasMora <= 0 ? 'Al Día' : `${cliente.maxDiasMora}d Mora`}
-                  </span>
+                  {cliente.ruc && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-gray-400 font-mono">RUC/DNI: {cliente.ruc}</span>
+                      <button
+                        onClick={(e: React.MouseEvent) => copyToClipboard(cliente.ruc, e)}
+                        className="p-1 text-gray-400 hover:text-blue-600 rounded"
+                        title="Copiar RUC"
+                      >
+                        {copiedRuc === cliente.ruc ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="flex flex-col gap-1 text-xs text-gray-500 pt-1">
+                    <div className="flex items-center gap-1 text-[11px] text-gray-500">
+                      <MapPin className="h-3.5 w-3.5 text-rose-500" />
+                      <span>Zona: <strong className="text-gray-700">{cliente.zona}</strong></span>
+                    </div>
+                    <div className="flex items-center gap-1 text-[11px] text-gray-500">
+                      <User className="h-3.5 w-3.5 text-gray-400" />
+                      <span>Rep: <strong className="text-gray-700">{cliente.representante}</strong></span>
+                    </div>
+                  </div>
                 </div>
 
-                {/* RUC / DNI Copiable */}
-                {cliente.ruc && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-gray-400 font-mono">RUC/DNI: {cliente.ruc}</span>
-                    <button
-                      onClick={(e: React.MouseEvent) => copyToClipboard(cliente.ruc, e)}
-                      className="p-1 text-gray-400 hover:text-blue-600 rounded"
-                      title="Copiar RUC"
-                    >
-                      {copiedRuc === cliente.ruc ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
-                    </button>
+                <div className="grid grid-cols-2 gap-2 pt-3 border-t border-gray-50 text-xs">
+                  <div className="bg-gray-50/50 p-2 rounded-xl space-y-0.5 flex flex-col justify-center">
+                    <div className="text-[10px] text-gray-400 font-medium flex items-center gap-1">
+                      <Wallet className="h-3 w-3 text-blue-500" /> Deuda Total
+                    </div>
+                    <p className="font-bold text-gray-900">S/. {cliente.saldoTotal.toLocaleString('es-PE', { minimumFractionDigits: 2 })}</p>
                   </div>
-                )}
-
-                {/* Zona y Vendedor */}
-                <div className="flex flex-col gap-1 text-xs text-gray-500 pt-1">
-                  <div className="flex items-center gap-1 text-[11px] text-gray-500">
-                    <MapPin className="h-3.5 w-3.5 text-rose-500" />
-                    <span>Zona: <strong className="text-gray-700">{cliente.zona}</strong></span>
-                  </div>
-                  <div className="flex items-center gap-1 text-[11px] text-gray-500">
-                    <User className="h-3.5 w-3.5 text-gray-400" />
-                    <span>Rep: <strong className="text-gray-700">{cliente.representante}</strong></span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Pie de tarjeta con Saldos y Accesos Rápidos */}
-              <div className="grid grid-cols-2 gap-2 pt-3 border-t border-gray-50 text-xs">
-                <div className="bg-gray-50/50 p-2 rounded-xl space-y-0.5 flex flex-col justify-center">
-                  <div className="text-[10px] text-gray-400 font-medium flex items-center gap-1">
-                    <Wallet className="h-3 w-3 text-blue-500" /> Deuda Total
-                  </div>
-                  <p className="font-bold text-gray-900">S/. {cliente.saldoTotal.toLocaleString('es-PE', { minimumFractionDigits: 2 })}</p>
-                </div>
-                
-                <div className="bg-gray-50/50 p-2 rounded-xl space-y-1">
-                  <div className="text-[10px] text-gray-400 font-medium flex items-center gap-1 mb-0.5">
-                    <Calendar className="h-3 w-3 text-purple-500" /> Documentos
-                  </div>
-                  <div className="flex gap-1.5" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-                    <Link
-                      to="/pagos"
-                      state={{ filterText: cliente.nombre, filterType: 'ALDIA' }}
-                      className="flex-1 text-center py-0.5 px-1 rounded bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 font-semibold text-[10px] transition"
-                    >
-                      {cliente.docsAlDia} Al día
-                    </Link>
-                    <Link
-                      to="/pagos"
-                      state={{ filterText: cliente.nombre, filterType: 'MORA' }}
-                      className={`flex-1 text-center py-0.5 px-1 rounded font-semibold text-[10px] transition ${
-                        cliente.docsEnMora > 0 
-                          ? 'bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-bold' 
-                          : 'bg-gray-50 text-gray-400 border border-gray-100 cursor-not-allowed pointer-events-none'
-                      }`}
-                    >
-                      {cliente.docsEnMora} Mora
-                    </Link>
+                  
+                  <div className="bg-gray-50/50 p-2 rounded-xl space-y-1">
+                    <div className="text-[10px] text-gray-400 font-medium flex items-center gap-1 mb-0.5">
+                      <Calendar className="h-3 w-3 text-purple-500" /> Documentos
+                    </div>
+                    <div className="flex gap-1.5" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+                      <Link
+                        to="/pagos"
+                        state={{ filterText: cliente.nombre, filterType: 'ALDIA' }}
+                        className="flex-1 text-center py-0.5 px-1 rounded bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 font-semibold text-[10px] transition"
+                      >
+                        {cliente.docsAlDia} Al día
+                      </Link>
+                      <Link
+                        to="/pagos"
+                        state={{ filterText: cliente.nombre, filterType: 'MORA' }}
+                        className={`flex-1 text-center py-0.5 px-1 rounded font-semibold text-[10px] transition ${
+                          cliente.docsEnMora > 0 
+                            ? 'bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-bold' 
+                            : 'bg-gray-50 text-gray-400 border border-gray-100 cursor-not-allowed pointer-events-none'
+                        }`}
+                      >
+                        {cliente.docsEnMora} Mora
+                      </Link>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
-      {/* MODAL FICHA 360, BITÁCORA Y ESTADO DE CUENTA */}
+      {/* MODAL FICHA 360 */}
       {selectedClienteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="w-full max-w-3xl rounded-3xl bg-white shadow-2xl border border-gray-100 overflow-hidden flex flex-col max-h-[90vh]">
+          <div className="w-full max-w-4xl rounded-3xl bg-white shadow-2xl border border-gray-100 overflow-hidden flex flex-col max-h-[92vh]">
             
             {/* Cabecera Modal */}
             <div className="p-5 bg-gray-50 border-b border-gray-100 flex items-start justify-between">
@@ -532,7 +610,7 @@ export default function ClientesPage() {
                   </span>
                 )}
                 <h2 className="text-lg font-bold text-gray-900">{selectedClienteModal.nombre}</h2>
-                <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
+                <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500 mt-1">
                   <span>RUC: <strong>{selectedClienteModal.ruc || 'S/N'}</strong></span>
                   <span>|</span>
                   <span>Zona: <strong>{selectedClienteModal.zona}</strong></span>
@@ -548,27 +626,43 @@ export default function ClientesPage() {
               </button>
             </div>
 
-            {/* TABS MODAL */}
-            <div className="flex border-b border-gray-100 bg-white px-5 gap-4">
+            {/* TABS EXPANDIDAS */}
+            <div className="flex border-b border-gray-100 bg-white px-5 gap-2 overflow-x-auto">
               <button
                 onClick={() => setActiveTab('docs')}
-                className={`py-3 text-xs font-bold border-b-2 transition flex items-center gap-1.5 ${
+                className={`py-3 px-2 text-xs font-bold border-b-2 transition whitespace-nowrap flex items-center gap-1.5 ${
                   activeTab === 'docs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-400 hover:text-gray-600'
                 }`}
               >
                 <FileText className="h-4 w-4" /> Documentos ({selectedClienteModal.documentosAsociados})
               </button>
               <button
+                onClick={() => setActiveTab('riesgo')}
+                className={`py-3 px-2 text-xs font-bold border-b-2 transition whitespace-nowrap flex items-center gap-1.5 ${
+                  activeTab === 'riesgo' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-400 hover:text-gray-600'
+                }`}
+              >
+                <BarChart3 className="h-4 w-4" /> Riesgo y Crédito
+              </button>
+              <button
+                onClick={() => setActiveTab('whatsapp')}
+                className={`py-3 px-2 text-xs font-bold border-b-2 transition whitespace-nowrap flex items-center gap-1.5 ${
+                  activeTab === 'whatsapp' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-400 hover:text-gray-600'
+                }`}
+              >
+                <MessageCircle className="h-4 w-4 text-green-600" /> Gestión WhatsApp
+              </button>
+              <button
                 onClick={() => setActiveTab('bitacora')}
-                className={`py-3 text-xs font-bold border-b-2 transition flex items-center gap-1.5 ${
+                className={`py-3 px-2 text-xs font-bold border-b-2 transition whitespace-nowrap flex items-center gap-1.5 ${
                   activeTab === 'bitacora' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-400 hover:text-gray-600'
                 }`}
               >
-                <History className="h-4 w-4" /> Bitácora de Gestión
+                <History className="h-4 w-4" /> Bitácora
               </button>
               <button
                 onClick={() => setActiveTab('estado_cuenta')}
-                className={`py-3 text-xs font-bold border-b-2 transition flex items-center gap-1.5 ${
+                className={`py-3 px-2 text-xs font-bold border-b-2 transition whitespace-nowrap flex items-center gap-1.5 ${
                   activeTab === 'estado_cuenta' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-400 hover:text-gray-600'
                 }`}
               >
@@ -605,10 +699,205 @@ export default function ClientesPage() {
                 </div>
               )}
 
-              {/* TAB 2: BITÁCORA CON EDICIÓN Y ELIMINACIÓN */}
+              {/* TAB 2: ANÁLISIS DE RIESGO Y CRÉDITO (SCORING ABC) */}
+              {activeTab === 'riesgo' && (() => {
+                const scoring = getScoringInfo(selectedClienteModal)
+                const totalDocs = selectedClienteModal.documentosAsociados || 1
+                const porcentajeAlDia = Math.round((selectedClienteModal.docsAlDia / totalDocs) * 100)
+                const porcentajeMora = 100 - porcentajeAlDia
+                const lineaCreditoEstimada = scoring.lineaSugerida
+                const porcentajeUsoCredito = Math.min(Math.round((selectedClienteModal.saldoTotal / lineaCreditoEstimada) * 100), 100)
+
+                return (
+                  <div className="space-y-4">
+                    {/* Tarjeta de Score ABC */}
+                    <div className={`p-4 rounded-2xl border ${scoring.color} flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4`}>
+                      <div className="flex items-center gap-3">
+                        <div className="p-3 bg-white/80 rounded-2xl shadow-sm text-center min-w-[60px]">
+                          <span className="text-2xl font-black">{scoring.score}</span>
+                          <p className="text-[9px] font-bold uppercase text-gray-500">SCORE</p>
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-bold text-sm">{scoring.label}</h3>
+                            <Award className="h-4 w-4" />
+                          </div>
+                          <p className="text-xs opacity-90">{scoring.desc}</p>
+                        </div>
+                      </div>
+
+                      <div className="text-right sm:text-right w-full sm:w-auto border-t sm:border-t-0 pt-2 sm:pt-0 border-black/10">
+                        <span className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">Mora Máxima</span>
+                        <p className="text-lg font-black">{selectedClienteModal.maxDiasMora <= 0 ? '0 Días' : `${selectedClienteModal.maxDiasMora} Días`}</p>
+                      </div>
+                    </div>
+
+                    {/* Banner de Alerta según mora */}
+                    {selectedClienteModal.maxDiasMora > 60 ? (
+                      <div className="p-3 rounded-xl bg-red-600 text-white flex items-center gap-2 text-xs font-bold shadow-sm">
+                        <AlertTriangle className="h-5 w-5 shrink-0" />
+                        <span>⚠️ SUGERENCIA CRÍTICA: Bloquear despacho y suspender línea de crédito por mora &gt; 60 días.</span>
+                      </div>
+                    ) : selectedClienteModal.maxDiasMora > 30 ? (
+                      <div className="p-3 rounded-xl bg-amber-500 text-white flex items-center gap-2 text-xs font-bold shadow-sm">
+                        <AlertTriangle className="h-5 w-5 shrink-0" />
+                        <span>⚡ ATENCIÓN: Requiere autorización de gerencia antes de nuevos despachos (&gt; 30 días mora).</span>
+                      </div>
+                    ) : (
+                      <div className="p-3 rounded-xl bg-green-50 text-green-800 border border-green-200 flex items-center gap-2 text-xs font-semibold">
+                        <ShieldCheck className="h-5 w-5 text-green-600 shrink-0" />
+                        <span>Perfil crediticio saludable. Cliente habilitado para pedidos de rutina.</span>
+                      </div>
+                    )}
+
+                    {/* Uso de Línea de Crédito */}
+                    <div className="p-4 rounded-2xl bg-gray-50 border border-gray-100 space-y-2">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="font-bold text-gray-700">Uso de Línea de Crédito Estimada</span>
+                        <span className="font-bold text-gray-900">
+                          S/. {selectedClienteModal.saldoTotal.toLocaleString('es-PE', { minimumFractionDigits: 2 })} / S/. {lineaCreditoEstimada.toLocaleString('es-PE', { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-200 h-3 rounded-full overflow-hidden flex">
+                        <div 
+                          className={`h-full transition-all ${
+                            porcentajeUsoCredito > 90 ? 'bg-red-500' : porcentajeUsoCredito > 70 ? 'bg-amber-500' : 'bg-blue-600'
+                          }`}
+                          style={{ width: `${porcentajeUsoCredito}%` }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-gray-400 text-right">
+                        Cupo utilizado: <strong>{porcentajeUsoCredito}%</strong>
+                      </p>
+                    </div>
+
+                    {/* Comportamiento de Documentos */}
+                    <div className="p-4 rounded-2xl bg-gray-50 border border-gray-100 space-y-3">
+                      <h4 className="font-bold text-gray-800 text-xs">Comportamiento de Documentos Vigentes</h4>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-white p-3 rounded-xl border border-green-100 flex items-center justify-between">
+                          <div>
+                            <p className="text-[10px] text-gray-400 font-medium">Documentos Al Día</p>
+                            <p className="text-base font-bold text-green-700">{selectedClienteModal.docsAlDia}</p>
+                          </div>
+                          <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded-lg">{porcentajeAlDia}%</span>
+                        </div>
+
+                        <div className="bg-white p-3 rounded-xl border border-red-100 flex items-center justify-between">
+                          <div>
+                            <p className="text-[10px] text-gray-400 font-medium">Documentos Vencidos</p>
+                            <p className="text-base font-bold text-red-700">{selectedClienteModal.docsEnMora}</p>
+                          </div>
+                          <span className="text-xs font-bold text-red-600 bg-red-50 px-2 py-1 rounded-lg">{porcentajeMora}%</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {/* TAB 3: GESTIÓN DIRECTA & WHATSAPP */}
+              {activeTab === 'whatsapp' && (
+                <div className="space-y-4">
+                  {/* Configuración de Teléfono */}
+                  <div className="p-4 bg-green-50/50 border border-green-100 rounded-2xl space-y-2">
+                    <label className="block text-xs font-bold text-gray-700 flex items-center gap-1.5">
+                      <Phone className="h-4 w-4 text-green-600" /> Número de WhatsApp del Cliente
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="Ej. 987654321 o 51987654321"
+                        value={telefonoActual}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTelefonoActual(e.target.value)}
+                        className="flex-1 rounded-xl border border-gray-200 bg-white p-2.5 outline-none text-xs focus:border-green-500 font-mono"
+                      />
+                      <button
+                        onClick={() => handleGuardarTelefono(telefonoActual)}
+                        className="px-3 py-2 bg-green-600 text-white rounded-xl font-bold text-xs hover:bg-green-700 transition"
+                      >
+                        Guardar
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Plantillas Rápidas */}
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-bold text-gray-700">Seleccionar Plantilla de Mensaje:</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <button
+                        onClick={() => generarMensajeWhatsApp('suave', selectedClienteModal, telefonoActual)}
+                        className={`p-2.5 rounded-xl border text-left transition flex items-center gap-2 ${
+                          plantillaSeleccionada === 'suave'
+                            ? 'bg-green-600 text-white border-green-600 font-bold'
+                            : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        <span className="text-lg">🟢</span>
+                        <div>
+                          <p className="text-xs font-bold">Recordatorio Suave</p>
+                          <p className="text-[10px] opacity-80">Previo al vencimiento</p>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => generarMensajeWhatsApp('aviso', selectedClienteModal, telefonoActual)}
+                        className={`p-2.5 rounded-xl border text-left transition flex items-center gap-2 ${
+                          plantillaSeleccionada === 'aviso'
+                            ? 'bg-amber-600 text-white border-amber-600 font-bold'
+                            : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        <span className="text-lg">🟡</span>
+                        <div>
+                          <p className="text-xs font-bold">Aviso de Vencimiento</p>
+                          <p className="text-[10px] opacity-80">Mora baja o puntual</p>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => generarMensajeWhatsApp('suspension', selectedClienteModal, telefonoActual)}
+                        className={`p-2.5 rounded-xl border text-left transition flex items-center gap-2 ${
+                          plantillaSeleccionada === 'suspension'
+                            ? 'bg-red-600 text-white border-red-600 font-bold'
+                            : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        <span className="text-lg">🔴</span>
+                        <div>
+                          <p className="text-xs font-bold">Aviso de Suspensión</p>
+                          <p className="text-[10px] opacity-80">Mora alta &gt;30 días</p>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Editor de Mensaje */}
+                  <div className="space-y-2">
+                    <label className="block text-xs font-bold text-gray-700">Mensaje a Enviar (Editable):</label>
+                    <textarea
+                      value={mensajeWhatsapp}
+                      onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setMensajeWhatsapp(e.target.value)}
+                      rows={5}
+                      className="w-full text-xs p-3 rounded-2xl border border-gray-200 bg-gray-50 focus:bg-white outline-none focus:border-green-500"
+                    />
+                  </div>
+
+                  {/* Botón de Envío */}
+                  <div className="flex justify-end">
+                    <button
+                      onClick={handleEnviarWhatsApp}
+                      className="w-full sm:w-auto px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-green-600/20 transition"
+                    >
+                      <Send className="h-4 w-4" /> Abrir en WhatsApp
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 4: BITÁCORA */}
               {activeTab === 'bitacora' && (
                 <div className="space-y-4">
-                  {/* Formulario de nueva nota */}
                   <div className="flex gap-2">
                     <input
                       type="text"
@@ -616,17 +905,16 @@ export default function ClientesPage() {
                       value={nuevaNota}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNuevaNota(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') handleAgregarNota() }}
-                      className="flex-1 rounded-xl border border-gray-200 p-2.5 outline-none focus:border-blue-500"
+                      className="flex-1 rounded-xl border border-gray-200 p-2.5 outline-none focus:border-blue-500 text-xs"
                     />
                     <button
                       onClick={handleAgregarNota}
-                      className="bg-blue-600 text-white font-bold px-4 rounded-xl hover:bg-blue-700 transition flex items-center gap-1"
+                      className="bg-blue-600 text-white font-bold px-4 rounded-xl hover:bg-blue-700 transition flex items-center gap-1 text-xs"
                     >
                       <MessageSquarePlus className="h-4 w-4" /> Anotar
                     </button>
                   </div>
 
-                  {/* Listado de notas filtrado por el cliente actual */}
                   <div className="space-y-2">
                     {notas
                       .filter((n: NotaBitacora) => n.cliente === selectedClienteModal.nombre)
@@ -660,25 +948,24 @@ export default function ClientesPage() {
                               </div>
                             </div>
 
-                            {/* Contenido editable vs vista normal */}
                             {isEditing ? (
                               <div className="space-y-2">
                                 <textarea
                                   value={textoEditado}
                                   onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setTextoEditado(e.target.value)}
-                                  className="w-full text-xs p-2 rounded-lg border border-amber-300 bg-white focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                  className="w-full text-xs p-2 rounded-lg border border-amber-300 bg-white focus:outline-none"
                                   rows={2}
                                 />
                                 <div className="flex justify-end gap-1.5">
                                   <button
                                     onClick={() => setEditingNotaId(null)}
-                                    className="px-2.5 py-1 text-[11px] font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+                                    className="px-2.5 py-1 text-[11px] font-medium text-gray-600 bg-white border border-gray-200 rounded-lg"
                                   >
                                     Cancelar
                                   </button>
                                   <button
                                     onClick={() => handleGuardarEdicion(nota.id)}
-                                    className="px-2.5 py-1 text-[11px] font-bold text-white bg-amber-600 rounded-lg hover:bg-amber-700 flex items-center gap-1"
+                                    className="px-2.5 py-1 text-[11px] font-bold text-white bg-amber-600 rounded-lg flex items-center gap-1"
                                   >
                                     <Save className="h-3 w-3" /> Guardar
                                   </button>
@@ -698,7 +985,7 @@ export default function ClientesPage() {
                 </div>
               )}
 
-              {/* TAB 3: ESTADO DE CUENTA IMPRIMIBLE */}
+              {/* TAB 5: ESTADO DE CUENTA */}
               {activeTab === 'estado_cuenta' && (
                 <div className="space-y-4">
                   <div className="flex justify-end">
@@ -710,7 +997,6 @@ export default function ClientesPage() {
                     </button>
                   </div>
 
-                  {/* VISTA IMPRIMIBLE FORMATEADA */}
                   <div className="p-6 border border-gray-200 rounded-2xl bg-white space-y-6 text-gray-800 print:border-none print:p-0">
                     <div className="flex justify-between items-start border-b border-gray-200 pb-4">
                       <div>
