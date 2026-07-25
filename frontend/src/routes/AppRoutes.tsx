@@ -9,7 +9,7 @@ import LoginPage from '../pages/LoginPage.tsx'
 import MlPage from '../pages/MlPage.tsx'
 import PagosPage from '../pages/PagosPage.tsx'
 import LogsPage from '../pages/LogsPage.tsx'
-import RutaCobranzaPage from '../pages/RutaCobranzaPage.tsx' // 👈 1. Importación
+import RutaCobranzaPage from '../pages/RutaCobranzaPage.tsx'
 
 function AppRoutes() {
   const { user, loading } = useAuth()
@@ -24,6 +24,13 @@ function AppRoutes() {
       <Route
         path="/"
         element={user ? <Layout><DashboardPage /></Layout> : <Navigate to="/login" replace />}
+      />
+      
+    
+
+      <Route
+        path="/rutas"
+        element={user ? <Layout><RutaCobranzaPage /></Layout> : <Navigate to="/login" replace />}
       />
       <Route
         path="/clientes"
@@ -52,12 +59,6 @@ function AppRoutes() {
       <Route
         path="/auditoria"
         element={user ? <Layout><LogsPage /></Layout> : <Navigate to="/login" replace />}
-      />
-
-      {/* 👈 2. Nueva ruta agregada */}
-      <Route
-        path="/rutas"
-        element={user ? <Layout><RutaCobranzaPage /></Layout> : <Navigate to="/login" replace />}
       />
 
       <Route path="*" element={<Navigate to="/" replace />} />
