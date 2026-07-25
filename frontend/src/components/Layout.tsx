@@ -1,6 +1,6 @@
 import { ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { FileText, Home, LogOut, Menu, Receipt, Sparkles, Users, Clock, Sun, Moon } from 'lucide-react'
+import { FileText, Home, LogOut, Menu, Receipt, Sparkles, Users, Clock, Sun, Moon, MapPin } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useSidebar } from '../contexts/SidebarContext'
 import { useTheme } from '../contexts/ThemeContext'
@@ -17,6 +17,7 @@ function Layout({ children }: LayoutProps) {
 
   const navItems = [
     { label: 'Dashboard', path: '/', icon: Home },
+    { label: 'Rutas', path: '/rutas', icon: MapPin }, // 👈 NUEVA OPCIÓN AGREGADA
     { label: 'Clientes', path: '/clientes', icon: Users },
     { label: 'Pagos', path: '/pagos', icon: Receipt },
     { label: 'Documentos', path: '/documentos', icon: FileText },
