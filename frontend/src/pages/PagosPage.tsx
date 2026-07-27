@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useSearchParams } from 'react-router-dom'
 import { toast } from 'react-hot-toast'
 import { getDocumentos } from '../lib/supabaseService'
 import { parseCobranzaExcelFile } from '../lib/excelService'
@@ -23,9 +23,26 @@ interface PagoProgramado {
 
 export default function PagosPage() {
   const location = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [loading, setLoading] = useState(true)
-  
-  const [searchTerm, setSearchTerm] = useState(() => (location.state as any)?.filterText || '')
+
+  // 1. OBTENER Y RECONOCER EL DOCUMENTO EXACTO O EL TEXTO ENVIADO
+  const exactDocQuery = searchParams.get('documento') || ''
+  const isExactSearch = (location.state as any)?.exactMatch || !!exactDocQuery
+
+  const [searchTerm, setSearchTerm] = useState(() => {
+    return exactDocQuery || (location.state as any)?.searchDocumento || (location.state as any)?.filterText || ''
+  })
+
+  // Sincronizar estado si cambia la URL o el state
+  useEffect(() => {
+    const docFromUrl = searchParams.get('documento')
+    const docFromState = (location.state as any)?.searchDocumento || (location.state as any)?.filterText
+    if (docFromUrl || docFromState) {
+      setSearchTerm(docFromUrl || docFromState || '')
+    }
+  }, [searchParams, location.state])
+
   const [subFilter, setSubFilter] = useState<string>(() => (location.state as any)?.filterType || 'TODO')
   const [repFilter, setRepFilter] = useState('TODOS')
 
@@ -191,15 +208,28 @@ export default function PagosPage() {
     }
   }, [pagosProgramados])
 
-  // Filtros
+  // Limpiar filtro exacto / URL
+  const clearExactSearch = () => {
+    setSearchTerm('')
+    setSearchParams({})
+  }
+
+  // 2. LÓGICA DE FILTRADO CORREGIDA (COINCIDENCIA EXACTA SI VIENE DE DASHBOARD)
   const filteredRows = useMemo(() => {
     return allRows.filter((row: any) => {
       const term = searchTerm.toLowerCase().trim()
-      const docNum = (row.documento || row.doc || row.num_doc || '').toLowerCase()
-      const diasMora = Number(row.dias_mora || 0)
+      const docNum = (row.documento || row.doc || row.num_doc || row.numero_documento || '').toLowerCase().trim()
+      const diasMora = Number(row.dias_mora || row.diasMora || row.mora || 0)
       const rep = row.representante || row.vendedor || ''
 
-      const matchesText = (row.cliente || '').toLowerCase().includes(term) || 
+      // COINCIDENCIA EXACTA
+      if (isExactSearch && term) {
+        return docNum === term
+      }
+
+      // BÚSQUEDA GENERAL
+      const matchesText = !term || 
+                          (row.cliente || '').toLowerCase().includes(term) || 
                           rep.toLowerCase().includes(term) ||
                           docNum.includes(term)
 
@@ -209,10 +239,10 @@ export default function PagosPage() {
 
       if (subFilter === 'MORA') return diasMora > 0
       if (subFilter === 'ALDIA') return diasMora <= 0
-      
+
       return true
     })
-  }, [allRows, searchTerm, subFilter, repFilter])
+  }, [allRows, searchTerm, subFilter, repFilter, isExactSearch])
 
   // Programar Fila
   const handleProgramarFila = (row: any, index: number) => {
@@ -312,6 +342,19 @@ export default function PagosPage() {
         </div>
       </div>
 
+      {/* AVISO / BANNER SI HAY UN DOCUMENTO SELECCIONADO EXACTO */}
+      {isExactSearch && searchTerm && (
+        <div className="flex items-center justify-between rounded-2xl bg-blue-50 border border-blue-200 p-3.5 text-xs text-blue-800 print:hidden">
+          <span>Filtrando únicamente el documento: <strong className="font-mono text-blue-900">{searchTerm}</strong></span>
+          <button
+            onClick={clearExactSearch}
+            className="font-bold underline text-blue-700 hover:text-blue-900"
+          >
+            Ver todos los documentos
+          </button>
+        </div>
+      )}
+
       {/* METRICAS KPI */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 print:hidden">
         <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm flex items-center gap-3">
@@ -367,6 +410,7 @@ export default function PagosPage() {
                   setSearchTerm(e.target.value)
                   setShowSuggestions(true)
                   setSelectedIndex(-1)
+                  if (searchParams.get('documento')) setSearchParams({})
                 }}
                 onFocus={() => setShowSuggestions(true)}
                 onKeyDown={handleKeyDown}
@@ -374,7 +418,7 @@ export default function PagosPage() {
               />
               {searchTerm && (
                 <button 
-                  onClick={() => setSearchTerm('')} 
+                  onClick={clearExactSearch} 
                   className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                 >
                   <X className="h-3.5 w-3.5" />
@@ -411,6 +455,7 @@ export default function PagosPage() {
               <tr>
                 <th className="p-3">Cliente</th>
                 <th className="p-3">Documento</th>
+                <th className="p-3 text-center">Días Mora</th>
                 <th className="p-3 text-right">Saldo</th>
                 <th className="p-3 w-[15%]">Monto Programar</th>
                 <th className="p-3 w-[15%]">Canal Pago</th>
@@ -421,10 +466,20 @@ export default function PagosPage() {
             <tbody className="divide-y divide-gray-50">
               {filteredRows.slice(0, 30).map((row: any, index: number) => {
                 const rowId = row.id || `row-${index}`
+                const diasMora = Number(row.dias_mora || row.diasMora || row.mora || 0)
                 return (
                   <tr key={rowId} className="hover:bg-gray-50/40 transition">
                     <td className="p-3 font-bold text-gray-900">{row.cliente}</td>
                     <td className="p-3 font-mono text-gray-500">{row.documento || row.doc || 'S/N'}</td>
+                    <td className="p-3 text-center">
+                      <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        diasMora > 0 
+                          ? 'bg-red-100 text-red-700 border border-red-200' 
+                          : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                      }`}>
+                        {diasMora > 0 ? `${diasMora} d.` : 'Al día'}
+                      </span>
+                    </td>
                     <td className="p-3 text-right font-semibold">S/. {Number(row.saldo || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
                     <td className="p-2">
                       <input
@@ -467,6 +522,13 @@ export default function PagosPage() {
                   </tr>
                 )
               })}
+              {filteredRows.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="p-6 text-center text-gray-400">
+                    No se encontró ningún documento con ese criterio de búsqueda.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

@@ -13,14 +13,10 @@ import {
   PieChart as PieIcon, 
   BarChart3, 
   BarChartHorizontal,
-  Target,
   CheckCircle2,
   ShieldAlert,
   ArrowUpRight,
   ArrowDownRight,
-  Calendar,
-  Wallet,
-  Building2,
   X,
   ChevronLeft,
   ChevronRight,
@@ -71,8 +67,9 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [searchTableTerm, setSearchTableTerm] = useState('');
   const [allRows, setAllRows] = useState<any[]>([]);
-  const [previousRows, setPreviousRows] = useState<any[]>([]); // Para deltas de comparación
+  const [previousRows, setPreviousRows] = useState<any[]>([]);
   
   // Lista de archivos Excel disponibles en Supabase
   const [excelDocs, setExcelDocs] = useState<DocumentoExtendido[]>([]);
@@ -106,7 +103,7 @@ export default function DashboardPage() {
     }
   };
 
-  // Cargar datos del documento seleccionado y del previo (para comparativas)
+  // Cargar datos del documento seleccionado y del previo
   const loadDashboardData = async () => {
     if (!selectedDocId && excelDocs.length === 0) return;
     setLoading(true);
@@ -126,7 +123,7 @@ export default function DashboardPage() {
       const parsedRows = await parseCobranzaExcelFile(file);
       setAllRows(parsedRows);
 
-      // 2. Cargar el Excel anterior si existe para calcular la métrica comparativa (delta)
+      // 2. Cargar el Excel anterior si existe para calcular la métrica comparativa
       if (currentIndex >= 0 && currentIndex + 1 < excelDocs.length) {
         const prevDoc = excelDocs[currentIndex + 1];
         if (prevDoc?.url_archivo) {
@@ -163,7 +160,7 @@ export default function DashboardPage() {
   // Restablecer paginación al buscar
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, selectedDocId]);
+  }, [searchTerm, searchTableTerm, selectedDocId]);
 
   // Lista de representantes únicos
   const listaRepresentantes = useMemo(() => {
@@ -186,7 +183,7 @@ export default function DashboardPage() {
     });
   }, [allRows, searchTerm]);
 
-  // Cálculo del Período Anterior (para Deltas)
+  // Cálculo del Período Anterior
   const prevMontoEnMoraTotal = useMemo(() => {
     if (previousRows.length === 0) return 0;
     return previousRows.reduce((acc: number, row: any) => {
@@ -261,7 +258,6 @@ export default function DashboardPage() {
 
     const ticketPromedio = clientesActivos > 0 ? saldoPendienteTotal / clientesActivos : 0;
     
-    // Cálculo del Delta de Cartera en Mora
     let moraDeltaPorcentaje = 0;
     if (prevMontoEnMoraTotal > 0) {
       moraDeltaPorcentaje = ((montoEnMoraTotal - prevMontoEnMoraTotal) / prevMontoEnMoraTotal) * 100;
@@ -285,12 +281,23 @@ export default function DashboardPage() {
     };
   }, [filteredRows, prevMontoEnMoraTotal]);
 
-  // Paginación para la tabla
-  const totalPages = Math.ceil(metrics.documentosEnMoraList.length / ITEMS_PER_PAGE) || 1;
+  // FILTRADO DE LA TABLA DE DOCUMENTOS EN MORA POR CLIENTE O NÚMERO DE DOCUMENTO
+  const filteredDocsInMora = useMemo(() => {
+    if (!searchTableTerm.trim()) return metrics.documentosEnMoraList;
+    const term = searchTableTerm.toLowerCase().trim();
+    return metrics.documentosEnMoraList.filter((doc: any) => {
+      const cliente = (doc.cliente || '').toLowerCase();
+      const numDoc = (doc.documento || doc.num_doc || '').toLowerCase();
+      return cliente.includes(term) || numDoc.includes(term);
+    });
+  }, [metrics.documentosEnMoraList, searchTableTerm]);
+
+  // Paginación de la tabla
+  const totalPages = Math.ceil(filteredDocsInMora.length / ITEMS_PER_PAGE) || 1;
   const paginatedDocsInMora = useMemo(() => {
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return metrics.documentosEnMoraList.slice(start, start + ITEMS_PER_PAGE);
-  }, [metrics.documentosEnMoraList, currentPage]);
+    return filteredDocsInMora.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredDocsInMora, currentPage]);
 
   // Datos para Recharts
   const estadoData = [
@@ -327,9 +334,16 @@ export default function DashboardPage() {
     );
   };
 
+  // NAVEGACIÓN DIRECTA Y EXCLUSIVA AL DOCUMENTO SELECCIONADO
   const handleDocumentClick = (numDoc: string) => {
     if (!numDoc) return;
-    navigate('/pagos', { state: { searchDocumento: numDoc } });
+    const cleanDoc = numDoc.trim();
+    navigate(`/pagos?documento=${encodeURIComponent(cleanDoc)}`, { 
+      state: { 
+        searchDocumento: cleanDoc, 
+        exactMatch: true 
+      } 
+    });
   };
 
   if (loading) {
@@ -343,7 +357,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6 p-4 md:p-6 max-w-7xl mx-auto pb-12">
-      {/* HEADER, SELECTOR DE FECHA/ARCHIVO Y FILTRO DE REPRESENTANTE */}
+      {/* HEADER, SELECTOR DE FECHA Y FILTRO DE REPRESENTANTE */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-800 dark:text-slate-100">Panel de Control de Cobranzas</h1>
@@ -351,7 +365,7 @@ export default function DashboardPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {/* 3. SELECTOR DE ARCHIVO / PERÍODO */}
+          {/* SELECTOR DE ARCHIVO */}
           <div className="relative flex-1 sm:flex-none">
             <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
               <FileSpreadsheet className="h-4 w-4 text-blue-500" />
@@ -409,9 +423,9 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* METRIC CARDS / KPIS CON DELTA Y TICKET PROMEDIO */}
+      {/* METRIC CARDS / KPIS */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {/* CLIENTES ACTIVOS & TICKET PROMEDIO */}
+        {/* CLIENTES ACTIVOS */}
         <div className="rounded-3xl bg-white dark:bg-slate-800 p-5 shadow-sm border border-gray-100 dark:border-slate-700/50 flex flex-col justify-between space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-gray-500 dark:text-slate-400">Clientes & Eficiencia</span>
@@ -448,7 +462,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* MONTO EN MORA CON TENDENCIA (DELTA) */}
+        {/* MONTO EN MORA CON TENDENCIA */}
         <div className="rounded-3xl bg-white dark:bg-slate-800 p-5 shadow-sm border border-gray-100 dark:border-slate-700/50 flex flex-col justify-between space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-gray-500 dark:text-slate-400">Cartera en Mora</span>
@@ -461,7 +475,6 @@ export default function DashboardPage() {
               {fmtSoles(metrics.montoEnMoraTotal)}
             </p>
             
-            {/* INDICADOR DE TENDENCIA (DELTA vs ARCHIVO PREVIO) */}
             <div className="flex items-center gap-1.5 mt-1">
               {prevMontoEnMoraTotal > 0 ? (
                 metrics.moraDeltaPorcentaje <= 0 ? (
@@ -503,7 +516,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* SECCIÓN DE CHARTS & TABLA PAGINADA */}
+      {/* CHARTS Y TABLA DE VENCIDOS */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* GRÁFICO DINÁMICO */}
         <div className="rounded-3xl bg-white dark:bg-slate-800 p-6 shadow-sm border border-gray-100 dark:border-slate-700/50 flex flex-col justify-between">
@@ -606,20 +619,39 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* TABLA DE DOCUMENTOS EN MORA (PAGINADA) */}
+        {/* TABLA DE DOCUMENTOS EN MORA */}
         <div className="rounded-3xl bg-white dark:bg-slate-800 p-6 shadow-sm border border-gray-100 dark:border-slate-700/50 flex flex-col justify-between">
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="font-bold text-gray-800 dark:text-slate-100">Resumen de Documentos Vencidos</h3>
-              <span className="text-[11px] font-bold text-gray-500 bg-gray-100 dark:bg-slate-700 dark:text-slate-300 px-2.5 py-1 rounded-lg">
-                Página {currentPage} de {totalPages}
-              </span>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
+              <div>
+                <h3 className="font-bold text-gray-800 dark:text-slate-100">Resumen de Documentos Vencidos</h3>
+                <p className="text-xs text-gray-500 dark:text-slate-400">Haz clic sobre un número de documento para registrar un pago.</p>
+              </div>
+
+              {/* INPUT BUSCADOR */}
+              <div className="relative w-full sm:w-52">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 dark:text-slate-500" />
+                <input
+                  type="text"
+                  placeholder="Buscar cliente o doc..."
+                  value={searchTableTerm}
+                  onChange={(e) => setSearchTableTerm(e.target.value)}
+                  className="w-full pl-8 pr-7 py-1.5 bg-gray-50 dark:bg-slate-900/60 border border-gray-200 dark:border-slate-700 rounded-xl text-xs text-gray-800 dark:text-slate-100 outline-none focus:border-blue-500 focus:bg-white dark:focus:bg-slate-800 transition"
+                />
+                {searchTableTerm && (
+                  <button 
+                    onClick={() => setSearchTableTerm('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-slate-200"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
-            <p className="text-xs text-gray-500 dark:text-slate-400 mb-3">Haz clic sobre un número de documento para registrar un pago.</p>
           </div>
 
-          <div className="flex-1 overflow-auto min-h-[250px] border border-gray-100 dark:border-slate-700/60 rounded-2xl">
-            {metrics.documentosEnMoraList.length === 0 ? (
+          <div className="flex-1 overflow-auto min-h-[250px] border border-gray-100 dark:border-slate-700/60 rounded-2xl mt-2">
+            {filteredDocsInMora.length === 0 ? (
               <div className="flex h-full items-center justify-center py-12 text-xs text-gray-400 dark:text-slate-500">
                 Ningún documento en mora encontrado.
               </div>
@@ -669,7 +701,9 @@ export default function DashboardPage() {
 
           {/* CONTROLES DE PAGINACIÓN */}
           <div className="mt-4 pt-3 border-t border-gray-100 dark:border-slate-700 flex items-center justify-between">
-            <span className="text-[11px] text-gray-400">Total: <strong>{metrics.documentosEnMoraList.length}</strong></span>
+            <span className="text-[11px] text-gray-400">
+              Página <strong>{currentPage}</strong> de <strong>{totalPages}</strong> ({filteredDocsInMora.length} docs)
+            </span>
             
             <div className="flex items-center gap-2">
               <button
@@ -691,7 +725,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* SECCIÓN INFERIOR: CLIENTES CRÍTICOS (+90 DÍAS) */}
+      {/* CLIENTES CRÍTICOS (+90 DÍAS) */}
       <div className="bg-white dark:bg-slate-800 rounded-3xl p-5 border border-gray-100 dark:border-slate-700/50 shadow-sm space-y-4">
         <div className="flex items-center justify-between border-b border-gray-100 dark:border-slate-700/60 pb-3">
           <div className="flex items-center gap-2">
@@ -716,20 +750,22 @@ export default function DashboardPage() {
                 key={cliente.ruc_dni}
                 className="p-3 bg-slate-50 dark:bg-slate-900/40 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 hover:border-red-200 dark:hover:border-red-900/50 transition"
               >
-                <div className="space-y-0.5 min-w-0 flex-1">
+                <div className="space-y-1 min-w-0 flex-1">
                   <p className="font-bold text-xs text-gray-900 dark:text-slate-100 leading-tight truncate">
                     {cliente.cliente}
                   </p>
-                  <p className="text-[11px] text-gray-400 dark:text-slate-500 truncate">
-                    RUC/DNI: {cliente.ruc_dni} • <span className="text-blue-600 dark:text-blue-400 font-medium">{cliente.representante}</span>
-                  </p>
+                  <div className="flex items-center gap-2 text-[11px] text-gray-400 dark:text-slate-500">
+                    <span>RUC/DNI: {cliente.ruc_dni}</span>
+                    <span>•</span>
+                    <span className="text-blue-600 dark:text-blue-400 font-medium truncate">{cliente.representante}</span>
+                  </div>
                 </div>
 
-                <div className="text-right shrink-0 space-y-0.5">
-                  <p className="font-bold text-xs text-red-600 dark:text-red-400">
+                <div className="text-right space-y-1 shrink-0">
+                  <p className="font-extrabold text-red-600 dark:text-red-400 text-xs md:text-sm">
                     {fmtSoles(cliente.saldoTotal)}
                   </p>
-                  <span className="inline-block text-[10px] bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 font-extrabold px-1.5 py-0.5 rounded">
+                  <span className="inline-block px-2 py-0.5 bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 font-bold text-[10px] rounded-md">
                     {cliente.maxDiasMora} días
                   </span>
                 </div>
