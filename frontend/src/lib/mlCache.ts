@@ -1,6 +1,6 @@
-// src/lib/mlCache.ts
+import { PlanPagoRecomendado } from './recommendationEngine'
 
-interface RecomendacionLocal {
+export interface RecomendacionLocal {
   id: string
   cliente: string
   documento: string
@@ -10,32 +10,31 @@ interface RecomendacionLocal {
   probabilidad_pago: number
   nivel_riesgo: 'Bajo' | 'Medio' | 'Alto' | 'Crítico'
   recomendacion: string
+  planPago: PlanPagoRecomendado
 }
 
-// Variables en memoria (persistentes mientras la app no se recargue por completo)
-let cacheDocId: string | null = null
-let cacheData: RecomendacionLocal[] = []
+const CACHE_KEY = 'ml_recommendations_cache'
+const CACHE_DOC_KEY = 'ml_document_id_cache'
 
 export const MlCache = {
-  // Comprobar si el ID del documento en el servidor coincide con nuestra caché
   isValid(documentoId: string): boolean {
-    return cacheDocId === documentoId && cacheData.length > 0
+    const cachedDoc = localStorage.getItem(CACHE_DOC_KEY)
+    const cachedData = localStorage.getItem(CACHE_KEY)
+    return cachedDoc === documentoId && cachedData !== null
   },
 
-  // Obtener los datos guardados
   get(): RecomendacionLocal[] {
-    return cacheData
+    const data = localStorage.getItem(CACHE_KEY)
+    return data ? JSON.parse(data) : []
   },
 
-  // Guardar los nuevos datos procesados vinculados a ese documento específico
-  set(documentoId: string, data: RecomendacionLocal[]) {
-    cacheDocId = documentoId
-    cacheData = data
+  set(documentoId: string, data: RecomendacionLocal[]): void {
+    localStorage.setItem(CACHE_DOC_KEY, documentoId)
+    localStorage.setItem(CACHE_KEY, JSON.stringify(data))
   },
 
-  // Limpiar caché por si necesitas forzar una recarga manual
-  clear() {
-    cacheDocId = null
-    cacheData = []
+  clear(): void {
+    localStorage.removeItem(CACHE_DOC_KEY)
+    localStorage.removeItem(CACHE_KEY)
   }
 }

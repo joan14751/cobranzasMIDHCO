@@ -1,20 +1,9 @@
 import { useEffect, useState } from 'react'
 import { getDocumentos } from '../lib/supabaseService'
 import { parseCobranzaExcelFile } from '../lib/excelService'
-import { MlCache } from '../lib/mlCache'
-import { Brain, ShieldCheck, AlertTriangle, HelpCircle, Search, FileText, RefreshCw, MessageSquare } from 'lucide-react'
-
-interface RecomendacionLocal {
-  id: string
-  cliente: string
-  documento: string
-  representante: string
-  saldo: number
-  dias_mora: number
-  probabilidad_pago: number
-  nivel_riesgo: 'Bajo' | 'Medio' | 'Alto' | 'Crítico'
-  recomendacion: string
-}
+import { MlCache, RecomendacionLocal } from '../lib/mlCache'
+import { obtenerPlanPagoIA } from '../lib/recommendationEngine'
+import { Brain, ShieldCheck, AlertTriangle, HelpCircle, Search, FileText, RefreshCw, MessageSquare, Calendar, Banknote, Info } from 'lucide-react'
 
 interface DocumentoExtendido {
   id: string;
@@ -114,7 +103,7 @@ export default function MlPage() {
 
         if (diasMora > 0 && diasMora <= 15) {
           riesgo = 'Medio'
-          recomendacion = 'Notificación amistosa via WhatsApp y correo electrónico. Seguimiento de compromiso a 48hrs.'
+          recomendacion = 'Notificación amistosa vía WhatsApp y correo electrónico. Seguimiento de compromiso a 48hrs.'
         } else if (diasMora > 15 && diasMora <= 45) {
           riesgo = 'Alto'
           recomendacion = 'Llamada directa de cobranza. Suspender temporalmente nuevos despachos y renegociar plazos.'
@@ -122,6 +111,8 @@ export default function MlPage() {
           riesgo = 'Crítico'
           recomendacion = 'Bloqueo absoluto de cuenta. Derivar a cobranza prejudicial/legal de inmediato y emitir carta notarial.'
         }
+
+        const planPago = obtenerPlanPagoIA(saldo, diasMora)
 
         return {
           id: row.id || `ml-${index}`,
@@ -132,7 +123,8 @@ export default function MlPage() {
           dias_mora: diasMora,
           probabilidad_pago: probabilidad / 100,
           nivel_riesgo: riesgo,
-          recomendacion
+          recomendacion,
+          planPago
         }
       })
 
@@ -149,7 +141,9 @@ export default function MlPage() {
   }
 
   useEffect(() => {
-    loadAndAnalyzeData()
+    // Limpia el caché viejo al cargar la pantalla para aplicar el nuevo formato
+    MlCache.clear(); 
+    loadAndAnalyzeData();
   }, [])
 
   const handleManualRefresh = async () => {
@@ -163,7 +157,8 @@ export default function MlPage() {
       `Le saludamos cordialmente. Le recordamos que presenta un saldo pendiente de *S/. ${item.saldo.toLocaleString('es-PE', { minimumFractionDigits: 2 })}* ` +
       `asociado al documento *${item.documento}*` +
       `${item.dias_mora > 0 ? `, con *${item.dias_mora} días de mora*.` : '.'}\n\n` +
-      `Agradeceremos su apoyo confirmando la fecha estimada de pago o coordinando con su representante (*${item.representante}*).\n\n` +
+      `💡 *Propuesta de Pago Sugerida:*\n${item.planPago.sugerenciaTexto}\n\n` +
+      `Agradeceremos su apoyo confirmando si está de acuerdo con este esquema o coordinando con su representante (*${item.representante}*).\n\n` +
       `¡Muchas gracias!`;
 
     return `https://api.whatsapp.com/send?text=${encodeURIComponent(mensaje)}`;
@@ -196,7 +191,7 @@ export default function MlPage() {
           <h1 className="text-xl md:text-2xl font-bold text-gray-800 flex items-center gap-2">
             <Brain className="h-6 w-6 text-blue-500" /> Gestión Inteligente de Cobranza (ML)
           </h1>
-          <p className="text-xs md:text-sm text-gray-500">Análisis de scoring crediticio y recomendaciones inmediatas según patrones de mora.</p>
+          <p className="text-xs md:text-sm text-gray-500">Análisis de scoring crediticio, planes de pago y justificación del algoritmo.</p>
         </div>
         
         <button
@@ -235,46 +230,83 @@ export default function MlPage() {
             filteredRecommendations.map((item, index) => {
               const badge = getRiesgoBadge(item.nivel_riesgo)
               return (
-                <div key={item.id || index} className="rounded-2xl border border-gray-100 bg-white p-4 md:p-5 shadow-sm transition hover:shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="space-y-1.5 flex-1 w-full">
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                      <span className="font-bold text-gray-900 text-sm md:text-base break-words">{item.cliente}</span>
-                      <span className="inline-flex items-center gap-1 text-[10px] md:text-xs font-mono font-semibold px-2 py-0.5 bg-blue-50 text-blue-700 rounded-md border border-blue-100">
-                        <FileText className="h-3 w-3" /> {item.documento}
-                      </span>
+                <div key={item.id || index} className="rounded-2xl border border-gray-100 bg-white p-4 md:p-5 shadow-sm transition hover:shadow-md flex flex-col space-y-3">
+                  
+                  {/* FILA PRINCIPAL: DATOS Y SCORE */}
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="space-y-1.5 flex-1 w-full">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                        <span className="font-bold text-gray-900 text-sm md:text-base break-words">{item.cliente}</span>
+                        <span className="inline-flex items-center gap-1 text-[10px] md:text-xs font-mono font-semibold px-2 py-0.5 bg-blue-50 text-blue-700 rounded-md border border-blue-100">
+                          <FileText className="h-3 w-3" /> {item.documento}
+                        </span>
+                      </div>
+                      <p className="text-xs md:text-sm text-gray-600 font-medium">{item.recomendacion}</p>
+                      
+                      <div className="grid grid-cols-2 md:flex md:flex-wrap gap-2 md:gap-x-4 md:gap-y-1 text-[11px] md:text-xs text-gray-400 pt-1">
+                        <span className="truncate">Rep: <strong className="text-gray-600">{item.representante}</strong></span>
+                        <span className="truncate">Monto Total: <strong className="text-gray-700">S/. {item.saldo.toLocaleString('es-PE', { minimumFractionDigits: 2 })}</strong></span>
+                        <span className="col-span-2 md:col-span-1">Retraso: <strong className={item.dias_mora > 0 ? "text-red-500 font-bold" : ""}>{item.dias_mora} días</strong></span>
+                      </div>
                     </div>
-                    <p className="text-xs md:text-sm text-gray-600 font-medium">{item.recomendacion}</p>
-                    
-                    <div className="grid grid-cols-2 md:flex md:flex-wrap gap-2 md:gap-x-4 md:gap-y-1 text-[11px] md:text-xs text-gray-400 pt-1">
-                      <span className="truncate">Rep: <strong className="text-gray-600">{item.representante}</strong></span>
-                      <span className="truncate">Monto: <strong className="text-gray-700">S/. {item.saldo.toLocaleString('es-PE', { minimumFractionDigits: 2 })}</strong></span>
-                      <span className="col-span-2 md:col-span-1">Retraso: <strong className={item.dias_mora > 0 ? "text-red-500 font-bold" : ""}>{item.dias_mora} días</strong></span>
+
+                    <div className="flex flex-row md:flex-col items-center md:items-end justify-between md:justify-center gap-3 min-w-[150px] pt-3 md:pt-0 border-t md:border-t-0 border-gray-100">
+                      <div className="flex items-center gap-2">
+                        <div className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] md:text-xs font-bold border ${badge.bg}`}>{badge.icon} Riesgo {item.nivel_riesgo}</div>
+                      </div>
+                      
+                      <div className="flex items-center md:flex-col md:items-end gap-3 md:gap-1">
+                        <div className="text-right">
+                          <p className="text-lg md:text-xl font-black text-gray-800">{Math.round(item.probabilidad_pago * 100)}%</p>
+                          <p className="text-[9px] md:text-[10px] text-slate-400 font-medium tracking-wider uppercase">Prob. Pago</p>
+                        </div>
+
+                        <a
+                          href={getWhatsAppUrl(item)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold shadow-sm transition active:scale-95"
+                          title="Enviar propuesta por WhatsApp"
+                        >
+                          <MessageSquare className="h-3.5 w-3.5 fill-current" />
+                          <span>WhatsApp</span>
+                        </a>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="flex flex-row md:flex-col items-center md:items-end justify-between md:justify-center gap-3 min-w-[150px] pt-3 md:pt-0 border-t md:border-t-0 border-gray-100">
-                    <div className="flex items-center gap-2">
-                      <div className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] md:text-xs font-bold border ${badge.bg}`}>{badge.icon} Riesgo {item.nivel_riesgo}</div>
-                    </div>
-                    
-                    <div className="flex items-center md:flex-col md:items-end gap-3 md:gap-1">
-                      <div className="text-right">
-                        <p className="text-lg md:text-xl font-black text-gray-800">{Math.round(item.probabilidad_pago * 100)}%</p>
-                        <p className="text-[9px] md:text-[10px] text-slate-400 font-medium tracking-wider uppercase">Prob. Pago</p>
+                  {/* BLOQUE DE RECOMENDACIÓN + JUSTIFICACIÓN (PORQUÉ) */}
+                  {item.planPago && (
+                    <div className="bg-blue-50/70 border border-blue-100 rounded-xl p-3.5 text-xs text-blue-900 space-y-2 mt-2">
+                      <div className="flex items-center gap-1.5 font-bold text-blue-800">
+                        <Brain className="h-4 w-4 text-blue-600" />
+                        <span>Plan de Pago Recomendado por IA:</span>
                       </div>
 
-                      <a
-                        href={getWhatsAppUrl(item)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold shadow-sm transition active:scale-95"
-                        title="Enviar recordatorio por WhatsApp"
-                      >
-                        <MessageSquare className="h-3.5 w-3.5 fill-current" />
-                        <span>WhatsApp</span>
-                      </a>
+                      <p className="font-semibold text-blue-950 text-xs">
+                        {item.planPago.sugerenciaTexto}
+                      </p>
+
+                      <div className="flex flex-wrap items-center gap-4 text-[11px] text-blue-800 font-medium border-t border-blue-100/80 pt-1.5">
+                        <span className="flex items-center gap-1">
+                          <Banknote className="h-3.5 w-3.5 text-blue-600" /> Sugerido/Cuota: <strong>S/. {item.planPago.montoSugerido.toLocaleString('es-PE', { minimumFractionDigits: 2 })}</strong>
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Calendar className="h-3.5 w-3.5 text-blue-600" /> Plazo: <strong>{item.planPago.plazoSugeridoDias > 0 ? `${item.planPago.plazoSugeridoDias} días` : 'Inmediato'}</strong>
+                        </span>
+                      </div>
+
+                      {/* EXPLICACIÓN DEL PORQUÉ */}
+                      <div className="flex items-start gap-1.5 text-[11px] text-blue-900/90 bg-white/80 p-2.5 rounded-lg border border-blue-100 mt-1">
+                        <Info className="h-4 w-4 text-blue-500 shrink-0 mt-0.5" />
+                        <div>
+                          <strong className="text-blue-900">¿Por qué esta propuesta? </strong> 
+                          <span>{item.planPago?.razonamiento || 'Análisis basado en historial de mora e importe pendiente.'}</span>
+                        </div>
+                      </div>
                     </div>
-                  </div>
+                  )}
+
                 </div>
               )
             })
