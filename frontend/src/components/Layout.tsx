@@ -36,7 +36,7 @@ function Layout({ children }: LayoutProps) {
         >
           {/* HEADER DEL SIDEBAR */}
           <div className={`mb-8 flex w-full items-center ${isOpen ? 'justify-between' : 'justify-center'}`}>
-            {isOpen && <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Cobranza</h2>}
+            {isOpen && <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Cobranza Midhco Distribuciones S.A.C.</h2>}
             <button 
               onClick={toggleSidebar} 
               className="rounded-lg p-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors"

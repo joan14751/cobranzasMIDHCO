@@ -4,7 +4,7 @@ import { toast } from 'react-hot-toast'
 import { getDocumentos } from '../lib/supabaseService'
 import { parseCobranzaExcelFile } from '../lib/excelService'
 import { 
-  Search, Calendar, Check, CheckCircle2, FileText, 
+  Search, Calendar, CheckCircle2, FileText, 
   Trash2, X, Download, Printer, DollarSign, CreditCard 
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
@@ -244,15 +244,15 @@ export default function PagosPage() {
     })
   }, [allRows, searchTerm, subFilter, repFilter, isExactSearch])
 
-  // Programar Fila
+  // Programar Fila (PERMITE MONTO 0)
   const handleProgramarFila = (row: any, index: number) => {
     const rowId = row.id || `row-${index}`
     const monto = inputsMonto[rowId]
     const fecha = inputsFecha[rowId]
     const metodo = inputsMetodo[rowId] || 'Transferencia BCP'
 
-    if (!monto || parseFloat(monto) <= 0) {
-      toast.error('Por favor, ingresa un monto válido.')
+    if (monto === '' || isNaN(parseFloat(monto)) || parseFloat(monto) < 0) {
+      toast.error('Por favor, ingresa un monto válido (0 o mayor).')
       return
     }
 
@@ -271,7 +271,7 @@ export default function PagosPage() {
     const listaActualizada = [nuevoPago, ...pagosProgramados]
     setPagosProgramados(listaActualizada)
     localStorage.setItem('cobranza_pagos_programados', JSON.stringify(listaActualizada))
-    toast.success('Cobro agendado en el cronograma.')
+    toast.success('Cobro actualizado en el cronograma.')
   }
 
   // Acciones en Cronograma
@@ -513,10 +513,10 @@ export default function PagosPage() {
                     <td className="p-3 text-center">
                       <button
                         onClick={() => handleProgramarFila(row, index)}
-                        className="p-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
-                        title="Agendar cobro"
+                        className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition shadow-sm text-[11px]"
+                        title="Actualizar o agendar cobro"
                       >
-                        <Check className="h-4 w-4" />
+                        Actualizar
                       </button>
                     </td>
                   </tr>

@@ -11,7 +11,8 @@ import {
   PieChart, 
   CheckCircle2,
   Calendar,
-  Layers
+  Layers,
+  FileText // <-- Agregado para el ícono del RUC
 } from 'lucide-react';
 
 // Tipos de datos para el reporte
@@ -34,7 +35,8 @@ interface Props {
 }
 
 export const GestionCobranzasView: React.FC<Props> = ({ documentos }) => {
-  const [tabActiva, setTabActiva] = useState<'zonas' | 'vendedores'>('zonas');
+  // Se agregó 'clientes' como opción válida para las pestañas
+  const [tabActiva, setTabActiva] = useState<'zonas' | 'vendedores' | 'clientes'>('zonas');
   
   // Filtros globales
   const [vendedorFiltro, setVendedorFiltro] = useState<string>('TODOS');
@@ -113,7 +115,7 @@ export const GestionCobranzasView: React.FC<Props> = ({ documentos }) => {
       saldoVencido: z.saldoVencido,
       porcentajeRiesgo: z.saldoTotal > 0 ? (z.saldoVencido / z.saldoTotal) * 100 : 0,
       promedioDiasMora: z.cantDocs > 0 ? Math.round(z.moraAcumulada / z.cantDocs) : 0,
-    })).sort((a, b) => b.saldoVencido - a.saldoVencido); // Ordenado por mayor saldo vencido
+    })).sort((a, b) => b.saldoVencido - a.saldoVencido);
   }, [docsFiltrados]);
 
   // ------------------------------------------------------------------
@@ -163,7 +165,6 @@ export const GestionCobranzasView: React.FC<Props> = ({ documentos }) => {
       const pctMora = v.saldoPendiente > 0 ? (v.saldoVencido / v.saldoPendiente) * 100 : 0;
       const ticketPromedio = v.clientes.size > 0 ? v.saldoPendiente / v.clientes.size : 0;
       
-      // Comisión/Bono estimado (Ejemplo: Meta > 85% cobrado = Bono Excelente)
       let incentivo = 'Sin Bono';
       let badgeColor = 'bg-gray-100 text-gray-700';
       if (pctCobranza >= 85) {
@@ -189,7 +190,45 @@ export const GestionCobranzasView: React.FC<Props> = ({ documentos }) => {
         incentivo,
         badgeColor
       };
-    }).sort((a, b) => b.pctCobranza - a.pctCobranza); // Ordenar por % de Eficiencia de cobro
+    }).sort((a, b) => b.pctCobranza - a.pctCobranza);
+  }, [docsFiltrados]);
+
+  // ------------------------------------------------------------------
+  // AGRUPACIÓN POR CLIENTES (NUEVA VENTANA 3 - TARJETAS CON RUC)
+  // ------------------------------------------------------------------
+  const clientesAgrupados = useMemo(() => {
+    const cMap = new Map<string, {
+      ruc: string;
+      razonSocial: string;
+      zona: string;
+      diasMora: number;
+      montoTotal: number;
+      totalDocs: number;
+    }>();
+
+    docsFiltrados.forEach(doc => {
+      const key = doc.rucDni || doc.razonSocial || 'SIN_ID';
+      if (!cMap.has(key)) {
+        cMap.set(key, {
+          ruc: doc.rucDni,
+          razonSocial: doc.razonSocial || doc.nombreComercial,
+          zona: doc.zona,
+          diasMora: 0,
+          montoTotal: 0,
+          totalDocs: 0
+        });
+      }
+      const cli = cMap.get(key)!;
+      cli.montoTotal += doc.saldo;
+      cli.totalDocs += 1;
+      // Guardamos la mora más alta del cliente
+      if (doc.diasMora > cli.diasMora) {
+        cli.diasMora = doc.diasMora;
+      }
+    });
+
+    // Ordenamos por los que deben más
+    return Array.from(cMap.values()).sort((a, b) => b.montoTotal - a.montoTotal);
   }, [docsFiltrados]);
 
   return (
@@ -205,8 +244,8 @@ export const GestionCobranzasView: React.FC<Props> = ({ documentos }) => {
           </p>
         </div>
 
-        {/* TAB SWITCHER */}
-        <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
+        {/* TAB SWITCHER ACTUALIZADO CON LA PESTAÑA 'CLIENTES' */}
+        <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 flex-wrap">
           <button
             onClick={() => setTabActiva('zonas')}
             className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
@@ -215,7 +254,7 @@ export const GestionCobranzasView: React.FC<Props> = ({ documentos }) => {
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <MapPin size={16} /> Mapa de Riesgo por Zonas
+            <MapPin size={16} /> Mapa de Riesgo
           </button>
           <button
             onClick={() => setTabActiva('vendedores')}
@@ -225,7 +264,17 @@ export const GestionCobranzasView: React.FC<Props> = ({ documentos }) => {
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Award size={16} /> Eficiencia de Vendedores
+            <Award size={16} /> Vendedores
+          </button>
+          <button
+            onClick={() => setTabActiva('clientes')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              tabActiva === 'clientes'
+                ? 'bg-white text-blue-700 shadow-sm font-semibold'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Users size={16} /> Cartera de Clientes
           </button>
         </div>
       </div>
@@ -480,6 +529,69 @@ export const GestionCobranzasView: React.FC<Props> = ({ documentos }) => {
           </div>
         </div>
       )}
+
+      {/* ==================================================================== */}
+      {/* TAB 3: CARTERA DE CLIENTES (VISTA DE TARJETAS CON RUC)               */}
+      {/* ==================================================================== */}
+      {tabActiva === 'clientes' && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          {clientesAgrupados.map((cliente, idx) => (
+            <div key={idx} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition">
+              
+              {/* Encabezado: Zonas y Mora */}
+              <div className="flex items-center gap-2 mb-3">
+                <span className="rounded-md bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-600 uppercase">
+                  {cliente.zona || 'SIN ZONA'}
+                </span>
+                {cliente.diasMora > 0 ? (
+                  <span className="rounded-md bg-red-50 px-2 py-0.5 text-xs font-bold text-red-600">
+                    Mora: {cliente.diasMora}d
+                  </span>
+                ) : (
+                  <span className="rounded-md bg-green-50 px-2 py-0.5 text-xs font-bold text-green-600">
+                    Al día
+                  </span>
+                )}
+              </div>
+
+              {/* Nombre + RUC + Monto Total */}
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <div className="flex flex-col gap-1.5 items-start">
+                    <h3 className="text-base font-bold text-slate-900 leading-tight">
+                      {cliente.razonSocial || 'SIN NOMBRE'}
+                    </h3>
+                    
+                    {/* AQUI ESTÁ EL BADGE DE RUC */}
+                    <span className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 border border-slate-200">
+                      <FileText className="h-3 w-3 text-slate-500" />
+                      RUC: <span className="font-mono">{cliente.ruc || 'S/N'}</span>
+                    </span>
+                  </div>
+                </div>
+
+                {/* Documentos y Monto Total */}
+                <div className="text-right shrink-0">
+                  <span className="text-xs font-semibold text-slate-400">
+                    {cliente.totalDocs} doc(s)
+                  </span>
+                  <p className="text-lg font-black text-slate-900">
+                    S/ {cliente.montoTotal.toLocaleString('es-PE', { minimumFractionDigits: 2 })}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {clientesAgrupados.length === 0 && (
+            <div className="col-span-full text-center p-10 bg-white rounded-xl border border-slate-200">
+              <Users className="mx-auto h-10 w-10 text-slate-300 mb-2" />
+              <p className="text-slate-500 font-medium">No se encontraron clientes para mostrar.</p>
+            </div>
+          )}
+        </div>
+      )}
+
     </div>
   );
 };
