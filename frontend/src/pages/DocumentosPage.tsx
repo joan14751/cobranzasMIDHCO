@@ -6,6 +6,8 @@ import {
   deleteDocumentoCompleto 
 } from '../lib/supabaseService';
 import { parseCobranzaExcelFile } from '../lib/excelService';
+// 👇 1. IMPORTAMOS LA FUNCIÓN DE AUDITORÍA
+import { registrarLogAuditoria } from './LogsPage';
 
 interface DocumentoExtendido {
   id: string;
@@ -66,6 +68,17 @@ export default function DocumentosPage() {
       toast.error('Error al subir: ' + error);
     } else {
       toast.success('Documento subido correctamente');
+
+      // 👇 2. REGISTRAMOS EL EVENTO EN AUDITORÍA AL SUBIR EXITOSAMENTE
+      const esExcel = /(\.xls|\.xlsx)$/i.test(file.name);
+      registrarLogAuditoria(
+        'Administrador',
+        'Admin',
+        'Documentos',
+        esExcel ? 'CARGA_EXCEL' : 'CREAR',
+        `Se subió exitosamente el archivo: "${file.name}"`
+      );
+
       loadDocumentos();
     }
 
@@ -146,6 +159,16 @@ export default function DocumentosPage() {
       toast.error('Error al eliminar: ' + error);
     } else {
       toast.success('Documento eliminado');
+
+      // 👇 3. REGISTRAMOS EL EVENTO EN AUDITORÍA AL ELIMINAR EXITOSAMENTE
+      registrarLogAuditoria(
+        'Administrador',
+        'Admin',
+        'Documentos',
+        'ELIMINAR',
+        `Se eliminó el documento: "${nombre}"`
+      );
+
       loadDocumentos();
     }
   };
