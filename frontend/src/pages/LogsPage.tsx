@@ -1,133 +1,308 @@
-import { useEffect, useState } from 'react'
-import { supabase } from '../lib/supabaseClient' // Asegúrate de apuntar a tu cliente de Supabase
-import { Clock, User, Layers, ArrowRight, Tag } from 'lucide-react'
+import React, { useState, useEffect, useMemo } from 'react'
+import { 
+  History, Search, ShieldAlert, CheckCircle2, 
+  FileSpreadsheet, User, Filter, Download, Trash2, Edit3, PlusCircle 
+} from 'lucide-react'
+import * as XLSX from 'xlsx'
 
-interface LogAuditoria {
+export interface LogAuditoria {
   id: string
-  tabla_afectada: string
-  operacion: 'INSERT' | 'UPDATE' | 'DELETE'
-  registro_id: string
-  valores_anteriores: any
-  valores_nuevos: any
-  creado_at: string
-  // Si deseas traer el correo del usuario, puedes hacer un join con perfiles si tienes esa tabla, 
-  // o por ahora mostraremos el ID directo o metadatos.
-  realizado_por: string 
+  fechaHora: string
+  usuario: string
+  rol: string
+  modulo: 'Pagos' | 'Documentos' | 'Rutas' | 'Clientes' | 'Sistema'
+  accion: 'CREAR' | 'EDITAR' | 'ELIMINAR' | 'CARGA_EXCEL'
+  descripcion: string
+  ip: string
+}
+
+/**
+ * Función auxiliar exportada para registrar eventos en tiempo real desde 
+ * cualquier parte de la aplicación (Documentos, Pagos, Clientes, etc.)
+ */
+export const registrarLogAuditoria = (
+  usuario: string,
+  rol: string,
+  modulo: LogAuditoria['modulo'],
+  accion: LogAuditoria['accion'],
+  descripcion: string
+) => {
+  const logsGuardados: LogAuditoria[] = JSON.parse(localStorage.getItem('midhco_audit_logs') || '[]')
+  
+  const nuevoLog: LogAuditoria = {
+    id: `log-${Date.now()}`,
+    fechaHora: new Date().toLocaleString('es-PE', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    }),
+    usuario,
+    rol,
+    modulo,
+    accion,
+    descripcion,
+    ip: 'Local'
+  }
+
+  const listaActualizada = [nuevoLog, ...logsGuardados]
+  localStorage.setItem('midhco_audit_logs', JSON.stringify(listaActualizada))
+
+  // Notificar a otras pantallas/componentes sobre el cambio
+  window.dispatchEvent(new Event('storage_audit_update'))
 }
 
 export default function LogsPage() {
+  const [searchTerm, setSearchTerm] = useState('')
+  const [moduloFilter, setModuloFilter] = useState('TODOS')
+  const [accionFilter, setAccionFilter] = useState('TODAS')
   const [logs, setLogs] = useState<LogAuditoria[]>([])
-  const [loading, setLoading] = useState(true)
+
+  // Función para obtener logs actualizados
+  const cargarLogs = () => {
+    const savedLogs = localStorage.getItem('midhco_audit_logs')
+    if (savedLogs) {
+      setLogs(JSON.parse(savedLogs))
+    } else {
+      setLogs([])
+    }
+  }
 
   useEffect(() => {
-    const fetchLogs = async () => {
-      try {
-        setLoading(true)
-        // Traemos los logs ordenados por fecha más reciente
-        const { data, error } = await supabase
-          .from('auditoria_logs')
-          .select('*')
-          .order('creado_at', { ascending: false })
-          .limit(50) // Limitar a los últimos 50 movimientos
+    cargarLogs()
 
-        if (error) throw error
-        setLogs(data || [])
-      } catch (err) {
-        console.error("Error cargando logs de auditoría:", err)
-      } finally {
-        setLoading(false)
-      }
+    // Listener para actualizar el listado cuando se añada un log desde otra pantalla
+    const handleUpdate = () => cargarLogs()
+    window.addEventListener('storage_audit_update', handleUpdate)
+    window.addEventListener('storage', handleUpdate)
+
+    return () => {
+      window.removeEventListener('storage_audit_update', handleUpdate)
+      window.removeEventListener('storage', handleUpdate)
     }
-
-    fetchLogs()
   }, [])
 
-  const getOperacionStyle = (op: string) => {
-    switch (op) {
-      case 'INSERT': return 'bg-green-50 text-green-700 border-green-200'
-      case 'UPDATE': return 'bg-amber-50 text-amber-700 border-amber-200'
-      case 'DELETE': return 'bg-red-50 text-red-700 border-red-200'
-      default: return 'bg-gray-50 text-gray-700 border-gray-200'
+  // Limpiar el historial
+  const limpiarHistorial = () => {
+    if (window.confirm('¿Seguro que deseas borrar el historial de auditoría?')) {
+      localStorage.removeItem('midhco_audit_logs')
+      setLogs([])
+    }
+  }
+
+  // Filtrado de logs según controles de la UI
+  const filteredLogs = useMemo(() => {
+    return logs.filter((log) => {
+      const matchModulo = moduloFilter === 'TODOS' || log.modulo === moduloFilter
+      const matchAccion = accionFilter === 'TODAS' || log.accion === accionFilter
+      
+      const term = searchTerm.toLowerCase().trim()
+      const matchSearch = !term || 
+        log.usuario.toLowerCase().includes(term) ||
+        log.descripcion.toLowerCase().includes(term) ||
+        log.modulo.toLowerCase().includes(term)
+
+      return matchModulo && matchAccion && matchSearch
+    })
+  }, [logs, moduloFilter, accionFilter, searchTerm])
+
+  // Exportar logs a un archivo Excel
+  const exportAuditoriaExcel = () => {
+    if (filteredLogs.length === 0) return
+    const dataToExport = filteredLogs.map(l => ({
+      'Fecha y Hora': l.fechaHora,
+      'Usuario': l.usuario,
+      'Rol': l.rol,
+      'Módulo': l.modulo,
+      'Acción': l.accion,
+      'Descripción': l.descripcion,
+      'Origen': l.ip
+    }))
+    const worksheet = XLSX.utils.json_to_sheet(dataToExport)
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Auditoria')
+    XLSX.writeFile(workbook, `Auditoria_Midhco_${new Date().toISOString().split('T')[0]}.xlsx`)
+  }
+
+  const getBadgeAccion = (accion: LogAuditoria['accion']) => {
+    switch (accion) {
+      case 'CREAR':
+        return <span className="inline-flex items-center gap-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded text-[10px] font-bold"><PlusCircle className="h-3 w-3"/> Crear</span>
+      case 'EDITAR':
+        return <span className="inline-flex items-center gap-1 bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded text-[10px] font-bold"><Edit3 className="h-3 w-3"/> Editar</span>
+      case 'ELIMINAR':
+        return <span className="inline-flex items-center gap-1 bg-red-500/10 text-red-400 border border-red-500/20 px-2 py-0.5 rounded text-[10px] font-bold"><Trash2 className="h-3 w-3"/> Eliminar</span>
+      case 'CARGA_EXCEL':
+        return <span className="inline-flex items-center gap-1 bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded text-[10px] font-bold"><FileSpreadsheet className="h-3 w-3"/> Excel</span>
     }
   }
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
-      <div>
-        <h1 className="text-xl md:text-2xl font-bold text-gray-800 flex items-center gap-2">
-          <Clock className="h-6 w-6 text-slate-600" /> Historial de Auditoría
-        </h1>
-        <p className="text-xs md:text-sm text-gray-500">Registro en tiempo real de todas las modificaciones hechas en el sistema.</p>
+    <div className="space-y-4 p-4 text-xs font-sans text-gray-200">
+      
+      {/* CABECERA */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-900/80 p-4 rounded-2xl border border-slate-800 shadow-sm backdrop-blur">
+        <div>
+          <h1 className="text-xl font-bold text-white flex items-center gap-2">
+            <History className="h-5 w-5 text-blue-400" /> Historial de Auditoría
+          </h1>
+          <p className="text-gray-400 text-[11px]">Registro en tiempo real de todas las modificaciones hechas en el sistema.</p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {logs.length > 0 && (
+            <button 
+              onClick={limpiarHistorial}
+              className="flex items-center gap-1 px-3 py-1.5 bg-red-900/40 hover:bg-red-800/60 text-red-300 border border-red-700/50 rounded-xl font-medium transition"
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Limpiar Historial
+            </button>
+          )}
+
+          <button 
+            onClick={exportAuditoriaExcel}
+            disabled={filteredLogs.length === 0}
+            className="flex items-center gap-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl font-bold transition shadow-sm"
+          >
+            <Download className="h-3.5 w-3.5" /> Exportar Log Real
+          </button>
+        </div>
       </div>
 
-      {loading ? (
-        <div className="space-y-3 animate-pulse">
-          <div className="h-16 bg-gray-100 rounded-xl w-full" />
-          <div className="h-16 bg-gray-100 rounded-xl w-full" />
-          <div className="h-16 bg-gray-100 rounded-xl w-full" />
+      {/* METRICAS RAPIDAS */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="bg-slate-900/60 border border-slate-800 p-3 rounded-xl flex items-center gap-3">
+          <div className="p-2 bg-blue-500/10 text-blue-400 rounded-lg">
+            <History className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-gray-400 text-[10px]">Total Registros Reales</p>
+            <p className="text-base font-bold text-white">{logs.length} eventos</p>
+          </div>
         </div>
-      ) : logs.length === 0 ? (
-        <div className="text-center py-12 text-sm text-gray-400">No se han registrado modificaciones aún.</div>
-      ) : (
-        <div className="flex flex-col gap-4">
-          {logs.map((log) => (
-            <div key={log.id} className="border border-gray-100 rounded-2xl bg-white p-4 shadow-sm space-y-3">
-              {/* Header del Log */}
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <span className={`px-2.5 py-0.5 text-xs font-bold rounded-md border ${getOperacionStyle(log.operacion)}`}>
-                    {log.operacion}
-                  </span>
-                  <span className="text-sm font-semibold text-gray-700 flex items-center gap-1">
-                    <Layers className="h-3.5 w-3.5 text-gray-400" /> Tabla: {log.tabla_afectada}
-                  </span>
-                </div>
-                <span className="text-xs text-gray-400 font-medium">
-                  {new Date(log.creado_at).toLocaleString('es-PE')}
-                </span>
-              </div>
 
-              {/* Detalles del Cambio */}
-              <div className="bg-slate-50 p-3 rounded-xl text-xs space-y-2 font-mono text-gray-600 overflow-x-auto">
-                <div>Ref ID: <span className="text-gray-900 font-bold">{log.registro_id}</span></div>
-                
-                {log.operacion === 'UPDATE' && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
-                    <div>
-                      <p className="font-semibold text-red-500 mb-1">Antes:</p>
-                      <pre className="whitespace-pre-wrap">{JSON.stringify(log.valores_anteriores, null, 2)}</pre>
-                    </div>
-                    <div>
-                      <p className="font-semibold text-green-600 mb-1">Después:</p>
-                      <pre className="whitespace-pre-wrap">{JSON.stringify(log.valores_nuevos, null, 2)}</pre>
-                    </div>
-                  </div>
-                )}
-
-                {log.operacion === 'INSERT' && (
-                  <div>
-                    <p className="font-semibold text-green-600 mb-1">Registro Creado:</p>
-                    <pre className="whitespace-pre-wrap">{JSON.stringify(log.valores_nuevos, null, 2)}</pre>
-                  </div>
-                )}
-
-                {log.operacion === 'DELETE' && (
-                  <div>
-                    <p className="font-semibold text-red-600 mb-1">Registro Eliminado:</p>
-                    <pre className="whitespace-pre-wrap">{JSON.stringify(log.valores_anteriores, null, 2)}</pre>
-                  </div>
-                )}
-              </div>
-
-              {/* Responsable */}
-              <div className="flex items-center gap-1.5 text-xs text-gray-400 pt-1 border-t border-gray-50">
-                <User className="h-3.5 w-3.5" />
-                <span>Usuario UUID: <strong className="text-gray-500 font-mono">{log.realizado_por || 'Sistema/Anónimo'}</strong></span>
-              </div>
-            </div>
-          ))}
+        <div className="bg-slate-900/60 border border-slate-800 p-3 rounded-xl flex items-center gap-3">
+          <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg">
+            <CheckCircle2 className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-gray-400 text-[10px]">Registros Filtrados</p>
+            <p className="text-base font-bold text-white">{filteredLogs.length}</p>
+          </div>
         </div>
-      )}
+
+        <div className="bg-slate-900/60 border border-slate-800 p-3 rounded-xl flex items-center gap-3">
+          <div className="p-2 bg-amber-500/10 text-amber-400 rounded-lg">
+            <ShieldAlert className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-gray-400 text-[10px]">Estado de Auditoría</p>
+            <p className="text-base font-bold text-emerald-400">Activo y Monitoreando</p>
+          </div>
+        </div>
+      </div>
+
+      {/* FILTROS Y BÚSQUEDA */}
+      <div className="bg-slate-900/80 p-3 rounded-2xl border border-slate-800 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-gray-400 font-semibold flex items-center gap-1 mr-1">
+            <Filter className="h-3.5 w-3.5" /> Filtros:
+          </span>
+
+          <select
+            value={moduloFilter}
+            onChange={(e) => setModuloFilter(e.target.value)}
+            className="rounded-xl border border-slate-700 bg-slate-800 py-1.5 px-3 font-medium text-gray-200 outline-none focus:border-blue-500"
+          >
+            <option value="TODOS">Todos los Módulos</option>
+            <option value="Pagos">Pagos</option>
+            <option value="Documentos">Documentos</option>
+            <option value="Rutas">Rutas</option>
+            <option value="Clientes">Clientes</option>
+            <option value="Sistema">Sistema</option>
+          </select>
+
+          <select
+            value={accionFilter}
+            onChange={(e) => setAccionFilter(e.target.value)}
+            className="rounded-xl border border-slate-700 bg-slate-800 py-1.5 px-3 font-medium text-gray-200 outline-none focus:border-blue-500"
+          >
+            <option value="TODAS">Todas las Acciones</option>
+            <option value="CREAR">Crear</option>
+            <option value="EDITAR">Editar</option>
+            <option value="ELIMINAR">Eliminar</option>
+            <option value="CARGA_EXCEL">Carga Excel</option>
+          </select>
+        </div>
+
+        <div className="relative w-full sm:w-64">
+          <input
+            type="text"
+            placeholder="Buscar por usuario o detalle..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full rounded-xl border border-slate-700 bg-slate-800 py-1.5 pl-8 pr-3 text-gray-200 outline-none focus:border-blue-500"
+          />
+          <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+        </div>
+      </div>
+
+      {/* TABLA DE AUDITORÍA */}
+      <div className="bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead className="bg-slate-800/60 text-gray-400 font-semibold border-b border-slate-800">
+              <tr>
+                <th className="p-3">Fecha / Hora</th>
+                <th className="p-3">Usuario</th>
+                <th className="p-3">Módulo</th>
+                <th className="p-3">Acción</th>
+                <th className="p-3">Descripción / Detalle</th>
+                <th className="p-3 text-right">Origen</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60 text-gray-300">
+              {filteredLogs.map((log) => (
+                <tr key={log.id} className="hover:bg-slate-800/40 transition">
+                  <td className="p-3 font-mono text-[11px] text-gray-400 whitespace-nowrap">
+                    {log.fechaHora}
+                  </td>
+                  <td className="p-3 font-semibold text-white whitespace-nowrap">
+                    <div className="flex items-center gap-1.5">
+                      <User className="h-3.5 w-3.5 text-blue-400" />
+                      <span>{log.usuario}</span>
+                      <span className="text-[10px] text-gray-500 font-normal">({log.rol})</span>
+                    </div>
+                  </td>
+                  <td className="p-3 whitespace-nowrap font-medium text-gray-300">
+                    {log.modulo}
+                  </td>
+                  <td className="p-3 whitespace-nowrap">
+                    {getBadgeAccion(log.accion)}
+                  </td>
+                  <td className="p-3 text-gray-300 min-w-[300px]">
+                    {log.descripcion}
+                  </td>
+                  <td className="p-3 text-right font-mono text-[11px] text-gray-500 whitespace-nowrap">
+                    {log.ip}
+                  </td>
+                </tr>
+              ))}
+
+              {filteredLogs.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="p-8 text-center text-gray-500">
+                    No hay registros grabados en el sistema.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
     </div>
   )
 }
