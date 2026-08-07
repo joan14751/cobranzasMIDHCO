@@ -31,7 +31,7 @@ export default function PagosPage() {
   const [selectedZona, setSelectedZona] = useState<string>('')
   const [selectedCliente, setSelectedCliente] = useState<string>('')
   const [repFilter, setRepFilter] = useState('TODOS')
-  const [tramoFilter, setTramoFilter] = useState<string>('TODOS') // <-- FILTRO DE TRAMOS DÍAS VENCIDOS
+  const [tramoFilter, setTramoFilter] = useState<string>('TODOS')
 
   const exactDocQuery = searchParams.get('documento') || ''
   const [searchTerm, setSearchTerm] = useState(() => {
@@ -50,7 +50,7 @@ export default function PagosPage() {
     setLoading(true)
     try {
       const { data, error } = await getDocumentos()
-      if (error) throw new Error(error)
+      if (error) throw new Error(typeof error === 'string' ? error : (error as any)?.message || 'Error al obtener documentos')
 
       const documentos = (data || []) as any[]
       const excelDocs = documentos.filter((doc) => 
@@ -119,7 +119,7 @@ export default function PagosPage() {
     return Array.from(setV).sort()
   }, [allRows])
 
-  // LÓGICA DE FILTRADO POR TRAMOS EXACTOS DE LA CAPTURA
+  // LÓGICA DE FILTRADO POR TRAMOS
   const cumpleFiltroTramo = (diasMora: number) => {
     if (tramoFilter === 'TODOS') return true
     if (tramoFilter === 'ALDIA') return diasMora <= 0
@@ -220,6 +220,11 @@ export default function PagosPage() {
       return zona === selectedZona && cliente === selectedCliente
     })
   }, [allRows, selectedZona, selectedCliente, repFilter, tramoFilter, searchTerm])
+
+  // 🟢 IMPLEMENTACIÓN SOLICITADA: CÁLCULO DE TOTAL DE SALDOS MOSTRADOS
+  const totalSaldoDocumentos = useMemo(() => {
+    return documentosFiltrados.reduce((acc, row) => acc + Number(row.saldo || 0), 0)
+  }, [documentosFiltrados])
 
   const handleInputChange = (rowId: string, type: 'monto' | 'fecha' | 'metodo', value: string) => {
     if (type === 'monto') {
@@ -362,11 +367,10 @@ export default function PagosPage() {
         </div>
       </div>
 
-      {/* COMPONENTE NUEVO: FILTRAR TRAMO (FORMATO CAPTURA CON PILLS) */}
+      {/* FILTRAR TRAMO */}
       <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm flex flex-wrap items-center gap-2 text-xs print:hidden">
         <span className="text-gray-500 font-semibold mr-2">Filtrar Tramo:</span>
         
-        {/* Botón Todos */}
         <button
           onClick={() => setTramoFilter('TODOS')}
           className={`px-4 py-1 rounded-full font-bold transition-all shadow-sm ${
@@ -378,7 +382,6 @@ export default function PagosPage() {
           Todos
         </button>
 
-        {/* Botón Al día */}
         <button
           onClick={() => setTramoFilter('ALDIA')}
           className={`flex items-center gap-1.5 px-3 py-1 rounded-full font-semibold transition-all border ${
@@ -391,7 +394,6 @@ export default function PagosPage() {
           Al día
         </button>
 
-        {/* Botón 1-15 días */}
         <button
           onClick={() => setTramoFilter('1-15')}
           className={`flex items-center gap-1.5 px-3 py-1 rounded-full font-semibold transition-all border ${
@@ -404,7 +406,6 @@ export default function PagosPage() {
           1-15 días
         </button>
 
-        {/* Botón 16-45 días */}
         <button
           onClick={() => setTramoFilter('16-45')}
           className={`flex items-center gap-1.5 px-3 py-1 rounded-full font-semibold transition-all border ${
@@ -417,7 +418,6 @@ export default function PagosPage() {
           16-45 días
         </button>
 
-        {/* Botón +46 días */}
         <button
           onClick={() => setTramoFilter('46+')}
           className={`flex items-center gap-1.5 px-3 py-1 rounded-full font-semibold transition-all border ${
@@ -555,7 +555,7 @@ export default function PagosPage() {
 
             <div className="overflow-x-auto overflow-y-auto flex-1">
               <table className="w-full text-left border-collapse">
-                <thead className="bg-gray-50 font-semibold text-gray-600 border-b border-gray-100 sticky top-0">
+                <thead className="bg-gray-50 font-semibold text-gray-600 border-b border-gray-100 sticky top-0 bg-white z-10">
                   <tr>
                     <th className="p-2">Documento</th>
                     <th className="p-2 text-center">Mora</th>
@@ -632,6 +632,20 @@ export default function PagosPage() {
                     </tr>
                   )}
                 </tbody>
+
+                {/* 🟢 IMPLEMENTACIÓN SOLICITADA: FILA DE TOTAL EN LA PARTE INFERIOR */}
+                <tfoot className="bg-gray-100 border-t-2 border-gray-200 font-bold sticky bottom-0 z-10">
+                  <tr>
+                    <td colSpan={2} className="p-2 text-right text-gray-700 font-extrabold uppercase text-[11px]">
+                      Total Saldo:
+                    </td>
+                    <td className="p-2 text-right font-black text-gray-900 font-mono text-xs">
+                      S/. {totalSaldoDocumentos.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                    <td colSpan={4}></td>
+                  </tr>
+                </tfoot>
+
               </table>
             </div>
           </div>
