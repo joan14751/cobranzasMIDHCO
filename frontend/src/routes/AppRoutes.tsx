@@ -10,12 +10,13 @@ import MlPage from '../pages/MlPage.tsx'
 import PagosPage from '../pages/PagosPage.tsx'
 import LogsPage from '../pages/LogsPage.tsx'
 import RutaCobranzaPage from '../pages/RutaCobranzaPage.tsx'
+import ComparativaPage from '../pages/ComparativaPage.tsx' // <-- NUEVO IMPORT
 
 function AppRoutes() {
   const { user, loading } = useAuth()
 
   if (loading) {
-    return <div className="p-6">Cargando...</div>
+    return <div className="p-6 text-slate-600 dark:text-slate-300">Cargando...</div>
   }
 
   return (
@@ -25,9 +26,6 @@ function AppRoutes() {
         path="/"
         element={user ? <Layout><DashboardPage /></Layout> : <Navigate to="/login" replace />}
       />
-      
-    
-
       <Route
         path="/rutas"
         element={user ? <Layout><RutaCobranzaPage /></Layout> : <Navigate to="/login" replace />}
@@ -52,6 +50,10 @@ function AppRoutes() {
         path="/documentos"
         element={user ? <Layout><DocumentosPage /></Layout> : <Navigate to="/login" replace />}
       />
+      <Route
+        path="/comparativa"
+        element={user ? <Layout><ComparativaPage /></Layout> : <Navigate to="/login" replace />}
+      /> {/* <-- NUEVA RUTA INTEGRADA */}
       <Route
         path="/ml"
         element={user ? <Layout><MlPage /></Layout> : <Navigate to="/login" replace />}

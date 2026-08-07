@@ -1,6 +1,6 @@
 import { ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { FileText, Home, LogOut, Menu, Receipt, Sparkles, Users, Clock, Sun, Moon, MapPin, Award } from 'lucide-react'
+import { FileText, Home, LogOut, Menu, Receipt, Sparkles, Users, Clock, Sun, Moon, MapPin, GitCompare } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useSidebar } from '../contexts/SidebarContext'
 import { useTheme } from '../contexts/ThemeContext'
@@ -21,6 +21,7 @@ function Layout({ children }: LayoutProps) {
     { label: 'Clientes', path: '/clientes', icon: Users },
     { label: 'Pagos', path: '/pagos', icon: Receipt },
     { label: 'Documentos', path: '/documentos', icon: FileText },
+    { label: 'Comparativa', path: '/comparativa', icon: GitCompare },
     { label: 'ML', path: '/ml', icon: Sparkles },
     { label: 'Auditoría', path: '/auditoria', icon: Clock },
   ]
@@ -72,7 +73,6 @@ function Layout({ children }: LayoutProps) {
 
           {/* CONTROLES INFERIORES */}
           <div className="w-full space-y-2 pt-4 border-t border-slate-100 dark:border-slate-800">
-            {/* BOTÓN CAMBIO DE TEMA */}
             <button
               onClick={toggleTheme}
               className={`flex items-center gap-3 rounded-lg py-2.5 font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all w-full ${
@@ -88,7 +88,6 @@ function Layout({ children }: LayoutProps) {
               {isOpen && <span>{theme === 'dark' ? 'Modo Claro' : 'Modo Oscuro'}</span>}
             </button>
 
-            {/* BOTÓN CERRAR SESIÓN */}
             <button
               onClick={() => signOut()}
               className={`flex items-center gap-3 rounded-lg py-2.5 font-medium text-slate-700 dark:text-slate-300 hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-600 dark:hover:text-red-400 transition-all w-full ${
