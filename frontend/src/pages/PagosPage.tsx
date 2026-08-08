@@ -221,7 +221,7 @@ export default function PagosPage() {
     })
   }, [allRows, selectedZona, selectedCliente, repFilter, tramoFilter, searchTerm])
 
-  // 🟢 IMPLEMENTACIÓN SOLICITADA: CÁLCULO DE TOTAL DE SALDOS MOSTRADOS
+  // CÁLCULO DE TOTAL DE SALDOS MOSTRADOS
   const totalSaldoDocumentos = useMemo(() => {
     return documentosFiltrados.reduce((acc, row) => acc + Number(row.saldo || 0), 0)
   }, [documentosFiltrados])
@@ -505,12 +505,16 @@ export default function PagosPage() {
                     <th className="p-2">Denominación / Cliente</th>
                     <th className="p-2 text-center">Docs</th>
                     <th className="p-2 text-right">Vencido</th>
+                    {/* 👇 COLUMNA AÑADIDA 👇 */}
+                    <th className="p-2 text-right text-emerald-700">Por Vencer</th>
                     <th className="p-2 text-right">Saldo Total</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {resumenClientes.map((c) => {
                     const isSelected = selectedCliente === c.cliente && !searchTerm
+                    const porVencer = Math.max(0, c.saldoTotal - c.saldoVencido)
+
                     return (
                       <tr
                         key={c.cliente}
@@ -527,6 +531,10 @@ export default function PagosPage() {
                         <td className="p-2 text-right font-medium text-red-600">
                           {c.saldoVencido > 0 ? `S/. ${c.saldoVencido.toLocaleString('es-PE', { minimumFractionDigits: 2 })}` : '-'}
                         </td>
+                        {/* 👇 CELDA POR VENCER AÑADIDA 👇 */}
+                        <td className="p-2 text-right font-medium text-emerald-600">
+                          {porVencer > 0 ? `S/. ${porVencer.toLocaleString('es-PE', { minimumFractionDigits: 2 })}` : '-'}
+                        </td>
                         <td className="p-2 text-right font-bold">
                           S/. {c.saldoTotal.toLocaleString('es-PE', { minimumFractionDigits: 2 })}
                         </td>
@@ -535,7 +543,7 @@ export default function PagosPage() {
                   })}
                   {resumenClientes.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="p-4 text-center text-gray-400">Sin clientes en este tramo.</td>
+                      <td colSpan={5} className="p-4 text-center text-gray-400">Sin clientes en este tramo.</td>
                     </tr>
                   )}
                 </tbody>
@@ -633,7 +641,7 @@ export default function PagosPage() {
                   )}
                 </tbody>
 
-                {/* 🟢 IMPLEMENTACIÓN SOLICITADA: FILA DE TOTAL EN LA PARTE INFERIOR */}
+                {/* FILA DE TOTAL EN LA PARTE INFERIOR */}
                 <tfoot className="bg-gray-100 border-t-2 border-gray-200 font-bold sticky bottom-0 z-10">
                   <tr>
                     <td colSpan={2} className="p-2 text-right text-gray-700 font-extrabold uppercase text-[11px]">
