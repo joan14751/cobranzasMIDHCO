@@ -4,13 +4,22 @@ import { parseCobranzaExcelFile } from '../lib/excelService'
 import { 
   Search, User, Building2, Wallet, Calendar, X, FileText, 
   History, CheckCircle2, ShieldAlert, MapPin, Copy, Check, 
-  Printer, Store, Map as MapIcon, Edit2, Trash2, Save,
+  Printer, Store, Edit2, Trash2, Save,
   BarChart3, MessageCircle, Send, Phone, Award, LayoutGrid, 
-  Table as TableIcon, ArrowUpDown, ChevronLeft, ChevronRight, SlidersHorizontal, AlertCircle
+  Table as TableIcon, ArrowUpDown, ChevronLeft, ChevronRight, SlidersHorizontal, AlertCircle, FileSpreadsheet, RefreshCw, ChevronDown
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { toast } from 'react-hot-toast'
-import MapaPeru from './MapaPeru'
+
+interface DocumentoExcel {
+  id: string
+  nombre: string
+  ruta_archivo: string
+  url_archivo: string
+  fecha_carga?: string
+  created_at?: string
+  fecha?: string
+}
 
 interface ClienteConsolidado {
   nombre: string
@@ -34,43 +43,44 @@ interface NotaBitacora {
   texto: string
 }
 
-interface ResumenZona {
-  clientes: number
-  deuda: number
-}
-
 type SortField = 'nombre' | 'saldoTotal' | 'maxDiasMora' | 'zona'
 type SortOrder = 'asc' | 'desc'
 
 export default function ClientesPage() {
   const [clientes, setClientes] = useState<ClienteConsolidado[]>([])
+  
+  // ESTADO DE DOCUMENTOS EXCEL DISPONIBLES Y SELECCIONADO
+  const [excelDocs, setExcelDocs] = useState<DocumentoExcel[]>([])
+  const [selectedDocId, setSelectedDocId] = useState<string>(() => {
+    return localStorage.getItem('cobranza_documento_activo_id') || ''
+  })
+
+  // Estado y Ref para desplegable personalizado
+  const [isDocDropdownOpen, setIsDocDropdownOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
   const [searchTerm, setSearchTerm] = useState<string>('')
   const [repFilter, setRepFilter] = useState<string>('TODOS')
   const [zonaFilter, setZonaFilter] = useState<string>('TODAS')
   const [moraRangeFilter, setMoraRangeFilter] = useState<string>('TODOS')
   const [minDeudaFilter, setMinDeudaFilter] = useState<number | ''>('')
   
-  // Vista Grid vs Table y Paginación
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
   const [currentPage, setCurrentPage] = useState<number>(1)
   const itemsPerPage = 12
 
-  // Ordenamiento para Vista Tabla
   const [sortField, setSortField] = useState<SortField>('saldoTotal')
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
 
   const [loading, setLoading] = useState<boolean>(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Copiado rápido de RUC
   const [copiedRuc, setCopiedRuc] = useState<string | null>(null)
   const searchContainerRef = useRef<HTMLDivElement>(null)
 
-  // Modal 360 y pestañas
   const [selectedClienteModal, setSelectedClienteModal] = useState<ClienteConsolidado | null>(null)
   const [activeTab, setActiveTab] = useState<'docs' | 'bitacora' | 'estado_cuenta' | 'riesgo' | 'whatsapp'>('docs')
   
-  // Bitácora de notas
   const [notas, setNotas] = useState<NotaBitacora[]>(() => {
     const saved = localStorage.getItem('cobranza_bitacora_notas')
     return saved ? JSON.parse(saved) : []
@@ -79,7 +89,6 @@ export default function ClientesPage() {
   const [editingNotaId, setEditingNotaId] = useState<string | null>(null)
   const [textoEditado, setTextoEditado] = useState<string>('')
 
-  // Estado para gestión de WhatsApp
   const [telefonosCliente, setTelefonosCliente] = useState<Record<string, string>>(() => {
     const saved = localStorage.getItem('cobranza_telefonos_clientes')
     return saved ? JSON.parse(saved) : {}
@@ -88,107 +97,178 @@ export default function ClientesPage() {
   const [mensajeWhatsapp, setMensajeWhatsapp] = useState<string>('')
   const [plantillaSeleccionada, setPlantillaSeleccionada] = useState<'suave' | 'aviso' | 'suspension'>('aviso')
 
+  // Helper para formatear fecha y hora idéntico al diseño de la imagen
+  const formatFechaHora = (fechaRaw?: string) => {
+    if (!fechaRaw) return ''
+    try {
+      const date = new Date(fechaRaw)
+      if (isNaN(date.getTime())) return ''
+      return date.toLocaleString('es-PE', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      })
+    } catch {
+      return ''
+    }
+  }
+
+  // Cerrar desplegable al hacer clic fuera
   useEffect(() => {
-    const loadAndProcessClientes = async () => {
-      try {
-        setLoading(true)
-        setError(null)
-        
-        const { data, error: supabaseError } = await getDocumentos()
-        if (supabaseError) throw new Error(supabaseError)
-
-        const documentos = (data || []) as any[]
-        const excelDocs = documentos.filter((doc: any) => 
-          doc.ruta_archivo && (doc.ruta_archivo.endsWith('.xls') || doc.ruta_archivo.endsWith('.xlsx'))
-        )
-
-        if (excelDocs.length === 0) {
-          setClientes([])
-          return
-        }
-
-        const ultimoExcel = excelDocs[0]
-        if (!ultimoExcel.url_archivo) throw new Error('La URL del archivo no es válida.')
-
-        const response = await fetch(ultimoExcel.url_archivo)
-        const blob = await response.blob()
-        const file = new File([blob], ultimoExcel.nombre, { type: blob.type })
-
-        const parsedRows = await parseCobranzaExcelFile(file)
-        const clientesMap: { [key: string]: ClienteConsolidado } = {}
-
-        parsedRows.forEach((row: any) => {
-          const nombreCliente = (row.cliente || row.razon_social || 'Cliente No Identificado').trim()
-          const nombreComercial = (row.nombre_comercial || '').trim()
-          const ruc = (row.ruc_dni || row.codsocio || '').trim()
-          const zona = (row.zona || 'Sin Zona').trim()
-          const representante = row.representante || row.vendedor || 'No Asignado'
-          const saldo = Number(row.saldo || 0)
-          const diasMora = Number(row.dias_mora || 0)
-
-          if (!clientesMap[nombreCliente]) {
-            clientesMap[nombreCliente] = {
-              nombre: nombreCliente,
-              nombreComercial: nombreComercial,
-              ruc: ruc,
-              zona: zona,
-              representante: representante,
-              saldoTotal: 0,
-              documentosAsociados: 0,
-              maxDiasMora: diasMora,
-              minDiasMora: diasMora,
-              docsAlDia: 0,
-              docsEnMora: 0,
-              documentosDetalle: []
-            }
-          }
-
-          clientesMap[nombreCliente].saldoTotal += saldo
-          clientesMap[nombreCliente].documentosAsociados += 1
-          clientesMap[nombreCliente].documentosDetalle.push(row)
-          
-          if (!clientesMap[nombreCliente].nombreComercial && nombreComercial) {
-            clientesMap[nombreCliente].nombreComercial = nombreComercial
-          }
-          if (!clientesMap[nombreCliente].ruc && ruc) {
-            clientesMap[nombreCliente].ruc = ruc
-          }
-
-          if (diasMora > 0) {
-            clientesMap[nombreCliente].docsEnMora += 1
-          } else {
-            clientesMap[nombreCliente].docsAlDia += 1
-          }
-
-          if (diasMora > clientesMap[nombreCliente].maxDiasMora) {
-            clientesMap[nombreCliente].maxDiasMora = diasMora
-          }
-          if (diasMora < clientesMap[nombreCliente].minDiasMora) {
-            clientesMap[nombreCliente].minDiasMora = diasMora
-          }
-        })
-
-        const listaClientes = Object.values(clientesMap).sort((a, b) => a.nombre.localeCompare(b.nombre))
-        setClientes(listaClientes)
-      } catch (err: any) {
-        setError(err.message || 'Error al procesar el directorio de clientes.')
-      } finally {
-        setLoading(false)
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDocDropdownOpen(false)
       }
     }
-
-    loadAndProcessClientes()
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  // 1. Obtener listado de documentos Excel registrados
+  const fetchDocumentosList = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const { data, error: supabaseError } = await getDocumentos()
+      if (supabaseError) throw new Error(typeof supabaseError === 'string' ? supabaseError : (supabaseError as any)?.message || 'Error Supabase')
+
+      const documentos = (data || []) as any[]
+      const excels = documentos.filter((doc: any) => 
+        doc.ruta_archivo && (doc.ruta_archivo.endsWith('.xls') || doc.ruta_archivo.endsWith('.xlsx'))
+      )
+
+      setExcelDocs(excels)
+
+      if (excels.length > 0) {
+        const currentSaved = localStorage.getItem('cobranza_documento_activo_id')
+        const existeGuardado = excels.some(d => String(d.id) === String(currentSaved))
+
+        if (!currentSaved || !existeGuardado) {
+          const docIdInicial = String(excels[0].id)
+          setSelectedDocId(docIdInicial)
+          localStorage.setItem('cobranza_documento_activo_id', docIdInicial)
+        }
+      } else {
+        setClientes([])
+        setLoading(false)
+      }
+    } catch (err: any) {
+      setError(err.message || 'Error al obtener la lista de documentos.')
+      setLoading(false)
+    }
+  }
+
+  // 2. Procesar el Excel seleccionado y consolidar los Clientes
+  const processExcelData = async (docIdToLoad: string) => {
+    if (!docIdToLoad || excelDocs.length === 0) return
+
+    const targetDoc = excelDocs.find(d => String(d.id) === String(docIdToLoad))
+    if (!targetDoc) return
+
+    setLoading(true)
+    setError(null)
+    try {
+      if (!targetDoc.url_archivo) throw new Error('La URL del archivo no es válida.')
+
+      const response = await fetch(targetDoc.url_archivo)
+      const blob = await response.blob()
+      const file = new File([blob], targetDoc.nombre, { type: blob.type })
+
+      const parsedRows = await parseCobranzaExcelFile(file)
+      const clientesMap: { [key: string]: ClienteConsolidado } = {}
+
+      parsedRows.forEach((row: any) => {
+        const nombreCliente = (row.cliente || row.razon_social || 'Cliente No Identificado').trim()
+        const nombreComercial = (row.nombre_comercial || '').trim()
+        const ruc = (row.ruc_dni || row.codsocio || '').trim()
+        const zona = (row.zona || 'Sin Zona').trim()
+        const representante = row.representante || row.vendedor || 'No Asignado'
+        const saldo = Number(row.saldo || 0)
+        const diasMora = Number(row.dias_mora || row.diasMora || row.mora || 0)
+
+        if (!clientesMap[nombreCliente]) {
+          clientesMap[nombreCliente] = {
+            nombre: nombreCliente,
+            nombreComercial: nombreComercial,
+            ruc: ruc,
+            zona: zona,
+            representante: representante,
+            saldoTotal: 0,
+            documentosAsociados: 0,
+            maxDiasMora: diasMora,
+            minDiasMora: diasMora,
+            docsAlDia: 0,
+            docsEnMora: 0,
+            documentosDetalle: []
+          }
+        }
+
+        clientesMap[nombreCliente].saldoTotal += saldo
+        clientesMap[nombreCliente].documentosAsociados += 1
+        clientesMap[nombreCliente].documentosDetalle.push(row)
+        
+        if (!clientesMap[nombreCliente].nombreComercial && nombreComercial) {
+          clientesMap[nombreCliente].nombreComercial = nombreComercial
+        }
+        if (!clientesMap[nombreCliente].ruc && ruc) {
+          clientesMap[nombreCliente].ruc = ruc
+        }
+
+        if (diasMora > 0) {
+          clientesMap[nombreCliente].docsEnMora += 1
+        } else {
+          clientesMap[nombreCliente].docsAlDia += 1
+        }
+
+        if (diasMora > clientesMap[nombreCliente].maxDiasMora) {
+          clientesMap[nombreCliente].maxDiasMora = diasMora
+        }
+        if (diasMora < clientesMap[nombreCliente].minDiasMora) {
+          clientesMap[nombreCliente].minDiasMora = diasMora
+        }
+      })
+
+      const listaClientes = Object.values(clientesMap).sort((a, b) => a.nombre.localeCompare(b.nombre))
+      setClientes(listaClientes)
+      toast.success(`Directorio actualizado desde: ${targetDoc.nombre}`)
+    } catch (err: any) {
+      setError(err.message || 'Error al procesar el directorio de clientes.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchDocumentosList()
+  }, [])
+
+  useEffect(() => {
+    if (selectedDocId && excelDocs.length > 0) {
+      processExcelData(selectedDocId)
+    }
+  }, [selectedDocId, excelDocs])
+
+  const handleDocumentChange = (docId: string) => {
+    setSelectedDocId(docId)
+    localStorage.setItem('cobranza_documento_activo_id', docId)
+    setIsDocDropdownOpen(false)
+  }
+
+  const selectedDocObj = useMemo(() => {
+    return excelDocs.find(d => String(d.id) === String(selectedDocId)) || excelDocs[0]
+  }, [excelDocs, selectedDocId])
 
   useEffect(() => {
     if (selectedClienteModal) {
       const telGuardado = telefonosCliente[selectedClienteModal.nombre] || ''
       setTelefonoActual(telGuardado)
-      generarMensajeWhatsApp('aviso', selectedClienteModal, telGuardado)
+      generarMensajeWhatsApp('aviso', selectedClienteModal)
     }
   }, [selectedClienteModal])
 
-  // Reset a página 1 al cambiar filtros
   useEffect(() => {
     setCurrentPage(1)
   }, [searchTerm, repFilter, zonaFilter, moraRangeFilter, minDeudaFilter])
@@ -201,14 +281,13 @@ export default function ClientesPage() {
     setTimeout(() => setCopiedRuc(null), 2000)
   }
 
-  // Generador de Avatar Dinámico
   const getAvatarInitials = (nombre: string) => {
     const parts = nombre.trim().split(' ')
     if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
     return nombre.substring(0, 2).toUpperCase()
   }
 
-  // --- MANEJO DE BITÁCORA ---
+  // BITÁCORA
   const handleAgregarNota = () => {
     if (!nuevaNota.trim() || !selectedClienteModal) return
     const nueva: NotaBitacora = {
@@ -252,7 +331,7 @@ export default function ClientesPage() {
     toast.success('Anotación eliminada')
   }
 
-  // --- MANEJO DE WHATSAPP ---
+  // WHATSAPP
   const handleGuardarTelefono = (telefono: string) => {
     if (!selectedClienteModal) return
     setTelefonoActual(telefono)
@@ -261,7 +340,7 @@ export default function ClientesPage() {
     localStorage.setItem('cobranza_telefonos_clientes', JSON.stringify(actualizados))
   }
 
-  const generarMensajeWhatsApp = (tipo: 'suave' | 'aviso' | 'suspension', cliente: ClienteConsolidado, tel?: string) => {
+  const generarMensajeWhatsApp = (tipo: 'suave' | 'aviso' | 'suspension', cliente: ClienteConsolidado) => {
     setPlantillaSeleccionada(tipo)
     const nombreDisplay = cliente.nombreComercial || cliente.nombre
     const montoFormateado = cliente.saldoTotal.toLocaleString('es-PE', { minimumFractionDigits: 2 })
@@ -306,17 +385,6 @@ export default function ClientesPage() {
     return { totalDeuda, montoMoraCritica, totalAlDia }
   }, [clientes])
 
-  const resumenPorZona = useMemo<Record<string, ResumenZona>>(() => {
-    const mapa: Record<string, ResumenZona> = {}
-    clientes.forEach((c: ClienteConsolidado) => {
-      const z = c.zona.toUpperCase().trim()
-      if (!mapa[z]) mapa[z] = { clientes: 0, deuda: 0 }
-      mapa[z].clientes += 1
-      mapa[z].deuda += c.saldoTotal
-    })
-    return mapa
-  }, [clientes])
-
   const representantesUnicos = useMemo(() => {
     const setR = new Set<string>()
     clientes.forEach((c: ClienteConsolidado) => { if (c.representante) setR.add(c.representante) })
@@ -329,7 +397,7 @@ export default function ClientesPage() {
     return Array.from(setZ).sort()
   }, [clientes])
 
-  // Filtrado y Ordenamiento
+  // FILTRADO
   const filteredAndSortedClientes = useMemo(() => {
     let result = clientes.filter((c: ClienteConsolidado) => {
       const term = searchTerm.toLowerCase().trim()
@@ -359,7 +427,6 @@ export default function ClientesPage() {
       return matchesSearch && matchesRep && matchesZona && matchesMora && matchesMinDeuda
     })
 
-    // Ordenamiento
     return result.sort((a, b) => {
       let aVal: any = a[sortField]
       let bVal: any = b[sortField]
@@ -371,7 +438,6 @@ export default function ClientesPage() {
     })
   }, [clientes, searchTerm, repFilter, zonaFilter, moraRangeFilter, minDeudaFilter, sortField, sortOrder])
 
-  // Paginación
   const totalPages = Math.ceil(filteredAndSortedClientes.length / itemsPerPage)
   const paginatedClientes = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage
@@ -441,24 +507,94 @@ export default function ClientesPage() {
           <p className="text-sm text-gray-500">Gestión consolidada por territorio, saldos, estados de mora e historial.</p>
         </div>
 
-        {/* SWITCH VISTA GRID / TABLA */}
-        <div className="flex items-center bg-gray-100 p-1 rounded-xl border border-gray-200">
-          <button
-            onClick={() => setViewMode('grid')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-              viewMode === 'grid' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            <LayoutGrid className="h-4 w-4" /> Tarjetas
-          </button>
-          <button
-            onClick={() => setViewMode('table')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-              viewMode === 'table' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            <TableIcon className="h-4 w-4" /> Lista Compacta
-          </button>
+        <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-end">
+          
+          {/* COMPONENTE SELECTOR PERSONALIZADO (FORMATO DE LA IMAGEN) */}
+          <div className="relative" ref={dropdownRef}>
+            <button
+              type="button"
+              onClick={() => setIsDocDropdownOpen(!isDocDropdownOpen)}
+              className="flex items-center gap-2 px-3 py-1.5 bg-blue-50/50 hover:bg-blue-50 border border-blue-100 rounded-2xl shadow-sm transition text-left"
+            >
+              <div className="p-1.5 bg-emerald-100/80 rounded-xl text-emerald-700">
+                <FileSpreadsheet className="h-4 w-4" />
+              </div>
+              <div className="flex flex-col min-w-[170px] max-w-[240px]">
+                <div className="flex items-center justify-between gap-1">
+                  <span className="font-bold text-gray-900 truncate text-[12px]">
+                    {selectedDocObj?.nombre || 'Cargando...'}
+                  </span>
+                  <ChevronDown className={`h-3.5 w-3.5 text-gray-500 transition-transform ${isDocDropdownOpen ? 'rotate-180' : ''}`} />
+                </div>
+                {selectedDocObj && (
+                  <div className="flex items-center gap-1 text-[11px]">
+                    <Calendar className="h-3 w-3 text-blue-500 shrink-0" />
+                    <span className="text-gray-500 font-medium">Actualizado hasta:</span>
+                    <span className="font-bold text-blue-600">
+                      {formatFechaHora(selectedDocObj.fecha_carga || selectedDocObj.created_at || selectedDocObj.fecha)}
+                    </span>
+                  </div>
+                )}
+              </div>
+              {loading && <RefreshCw className="h-3.5 w-3.5 text-blue-600 animate-spin ml-1" />}
+            </button>
+
+            {/* MENÚ DESPLEGABLE CON FORMATO DE LA FOTO */}
+            {isDocDropdownOpen && (
+              <div className="absolute right-0 mt-1 w-80 bg-white border border-gray-100 rounded-2xl shadow-xl z-50 overflow-hidden divide-y divide-gray-50 max-h-72 overflow-y-auto">
+                {excelDocs.map((doc) => {
+                  const isSelected = String(doc.id) === String(selectedDocId)
+                  const fechaFmt = formatFechaHora(doc.fecha_carga || doc.created_at || doc.fecha)
+                  return (
+                    <button
+                      key={doc.id}
+                      type="button"
+                      onClick={() => handleDocumentChange(String(doc.id))}
+                      className={`w-full p-2.5 text-left flex items-start gap-2.5 transition ${
+                        isSelected ? 'bg-blue-50/80' : 'hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className={`p-1.5 rounded-xl mt-0.5 ${isSelected ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-600'}`}>
+                        <FileSpreadsheet className="h-4 w-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className={`font-bold truncate text-[12px] ${isSelected ? 'text-blue-900' : 'text-gray-800'}`}>
+                          {doc.nombre}
+                        </p>
+                        {fechaFmt && (
+                          <div className="flex items-center gap-1 text-[11px] mt-0.5">
+                            <Calendar className="h-3 w-3 text-blue-500 shrink-0" />
+                            <span className="text-gray-500 font-medium">Actualizado hasta:</span>
+                            <span className="font-bold text-blue-600">{fechaFmt}</span>
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* SWITCH VISTA */}
+          <div className="flex items-center bg-gray-100 p-1 rounded-xl border border-gray-200">
+            <button
+              onClick={() => setViewMode('grid')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                viewMode === 'grid' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <LayoutGrid className="h-4 w-4" /> Tarjetas
+            </button>
+            <button
+              onClick={() => setViewMode('table')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                viewMode === 'table' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <TableIcon className="h-4 w-4" /> Lista Compacta
+            </button>
+          </div>
         </div>
       </div>
 
@@ -486,9 +622,9 @@ export default function ClientesPage() {
           </div>
         </div>
       </div>
-      {/* BARRA DE FILTROS Y ACCESOS RÁPIDOS */}
+
+      {/* FILTROS */}
       <div className="space-y-3 bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
-        {/* Chips de Acceso Rápido */}
         <div className="flex flex-wrap items-center gap-2 pb-2 border-b border-gray-100 text-xs">
           <span className="font-bold text-gray-500 flex items-center gap-1 mr-1">
             <SlidersHorizontal className="h-3.5 w-3.5" /> Accesos Rápidos:
@@ -519,7 +655,6 @@ export default function ClientesPage() {
           </button>
         </div>
 
-        {/* Inputs de Filtros */}
         <div className="flex flex-col lg:flex-row gap-3 items-center justify-between">
           <div ref={searchContainerRef} className="relative w-full lg:w-72">
             <Search className="absolute inset-y-0 left-3 h-4 w-4 text-gray-400 my-auto pointer-events-none" />
@@ -538,7 +673,6 @@ export default function ClientesPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
-            {/* Input Deuda Mínima */}
             <div className="flex items-center border border-gray-200 rounded-xl px-2 py-1 bg-white">
               <span className="text-[10px] text-gray-400 font-bold mr-1">Deuda &gt;</span>
               <input
@@ -589,7 +723,6 @@ export default function ClientesPage() {
         </div>
       </div>
 
-      {/* SKELETON LOADERS DURANTE LA CARGA */}
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3, 4, 5, 6].map((i) => (
@@ -620,7 +753,6 @@ export default function ClientesPage() {
         </div>
       ) : (
         <>
-          {/* VISTA 1: GRID TARJETAS */}
           {viewMode === 'grid' && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {paginatedClientes.map((cliente: ClienteConsolidado, index: number) => {
@@ -633,7 +765,6 @@ export default function ClientesPage() {
                   >
                     <div className="space-y-3">
                       <div className="flex items-start gap-3">
-                        {/* Avatar Dinámico / Gradiente */}
                         <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 text-white flex items-center justify-center font-black text-xs shadow-sm shrink-0">
                           {getAvatarInitials(cliente.nombre)}
                         </div>
@@ -665,7 +796,6 @@ export default function ClientesPage() {
                         </span>
                       </div>
 
-                      {/* SEMÁFORO / BARRA RIESGO */}
                       <div className="space-y-1">
                         <div className="flex justify-between items-center text-[10px]">
                           <span className="text-gray-400 font-medium">Nivel de Riesgo</span>
@@ -687,7 +817,6 @@ export default function ClientesPage() {
                       </div>
                     </div>
 
-                    {/* VALORES Y BOTONES DE RECOLECCIÓN */}
                     <div className="grid grid-cols-2 gap-2 pt-3 border-t border-gray-50 text-xs">
                       <div className="bg-gray-50/60 p-2 rounded-xl space-y-0.5 flex flex-col justify-center">
                         <div className="text-[10px] text-gray-400 font-medium flex items-center gap-1">
@@ -726,7 +855,6 @@ export default function ClientesPage() {
             </div>
           )}
 
-          {/* VISTA 2: LISTA COMPACTA (TABLA) */}
           {viewMode === 'table' && (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-x-auto">
               <table className="w-full text-left text-xs">
@@ -789,7 +917,6 @@ export default function ClientesPage() {
             </div>
           )}
 
-          {/* CONTROLES DE PAGINACIÓN */}
           {totalPages > 1 && (
             <div className="flex flex-col sm:flex-row justify-between items-center gap-3 bg-white p-4 rounded-2xl border border-gray-100 text-xs">
               <span className="text-gray-500">
@@ -820,12 +947,11 @@ export default function ClientesPage() {
         </>
       )}
 
-      {/* MODAL FICHA 360 DETALLADA */}
+      {/* MODAL FICHA 360 */}
       {selectedClienteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <div className="w-full max-w-4xl rounded-3xl bg-white shadow-2xl border border-gray-100 overflow-hidden flex flex-col max-h-[92vh]">
             
-            {/* Cabecera Modal */}
             <div className="p-5 bg-gray-50 border-b border-gray-100 flex items-start justify-between">
               <div>
                 {selectedClienteModal.nombreComercial && (
@@ -850,7 +976,6 @@ export default function ClientesPage() {
               </button>
             </div>
 
-            {/* PESTAÑAS */}
             <div className="flex border-b border-gray-100 bg-white px-5 gap-2 overflow-x-auto">
               <button
                 onClick={() => setActiveTab('docs')}
@@ -894,14 +1019,11 @@ export default function ClientesPage() {
               </button>
             </div>
 
-            {/* CONTENIDO DE PESTAÑAS */}
             <div className="p-5 overflow-y-auto flex-1 text-xs space-y-4">
-              
-              {/* TAB 1: DOCUMENTOS */}
               {activeTab === 'docs' && (
                 <div className="space-y-2">
                   {selectedClienteModal.documentosDetalle.map((doc: any, i: number) => {
-                    const mora = Number(doc.dias_mora || 0)
+                    const mora = Number(doc.dias_mora || doc.diasMora || doc.mora || 0)
                     const saldoDoc = Number(doc.saldo || 0)
                     return (
                       <div key={i} className="flex justify-between items-center p-3 rounded-xl border border-gray-100 bg-gray-50/50">
@@ -924,7 +1046,6 @@ export default function ClientesPage() {
                 </div>
               )}
 
-              {/* TAB 2: RIESGO Y CRÉDITO */}
               {activeTab === 'riesgo' && (() => {
                 const scoring = getScoringInfo(selectedClienteModal)
                 return (
@@ -959,7 +1080,6 @@ export default function ClientesPage() {
                 )
               })()}
 
-              {/* TAB 3: WHATSAPP */}
               {activeTab === 'whatsapp' && (
                 <div className="space-y-4">
                   <div className="space-y-1">
@@ -979,7 +1099,7 @@ export default function ClientesPage() {
                     <label className="text-[11px] font-bold text-gray-700">Seleccionar Plantilla:</label>
                     <div className="flex gap-2">
                       <button
-                        onClick={() => generarMensajeWhatsApp('suave', selectedClienteModal, telefonoActual)}
+                        onClick={() => generarMensajeWhatsApp('suave', selectedClienteModal)}
                         className={`flex-1 py-1.5 px-2 rounded-xl text-[10px] font-bold border transition ${
                           plantillaSeleccionada === 'suave' ? 'bg-green-100 border-green-300 text-green-800' : 'bg-gray-50 text-gray-600'
                         }`}
@@ -987,7 +1107,7 @@ export default function ClientesPage() {
                         Recordatorio Amable
                       </button>
                       <button
-                        onClick={() => generarMensajeWhatsApp('aviso', selectedClienteModal, telefonoActual)}
+                        onClick={() => generarMensajeWhatsApp('aviso', selectedClienteModal)}
                         className={`flex-1 py-1.5 px-2 rounded-xl text-[10px] font-bold border transition ${
                           plantillaSeleccionada === 'aviso' ? 'bg-amber-100 border-amber-300 text-amber-800' : 'bg-gray-50 text-gray-600'
                         }`}
@@ -995,7 +1115,7 @@ export default function ClientesPage() {
                         Aviso de Vencimiento
                       </button>
                       <button
-                        onClick={() => generarMensajeWhatsApp('suspension', selectedClienteModal, telefonoActual)}
+                        onClick={() => generarMensajeWhatsApp('suspension', selectedClienteModal)}
                         className={`flex-1 py-1.5 px-2 rounded-xl text-[10px] font-bold border transition ${
                           plantillaSeleccionada === 'suspension' ? 'bg-red-100 border-red-300 text-red-800' : 'bg-gray-50 text-gray-600'
                         }`}
@@ -1024,7 +1144,6 @@ export default function ClientesPage() {
                 </div>
               )}
 
-              {/* TAB 4: BITÁCORA */}
               {activeTab === 'bitacora' && (
                 <div className="space-y-4">
                   <div className="flex gap-2">
@@ -1080,7 +1199,6 @@ export default function ClientesPage() {
                 </div>
               )}
 
-              {/* TAB 5: ESTADO DE CUENTA */}
               {activeTab === 'estado_cuenta' && (
                 <div className="space-y-4">
                   <div className="p-4 border border-gray-200 rounded-2xl bg-white space-y-3" id="printable-area">

@@ -13,7 +13,6 @@ import {
   Search, 
   PieChart as PieIcon, 
   BarChart3, 
-  BarChartHorizontal,
   ShieldAlert,
   ArrowUpRight,
   ArrowDownRight,
@@ -31,7 +30,8 @@ import {
   Square,
   FileSearch,
   Bell,
-  ArrowRight
+  ArrowRight,
+  Calendar
 } from 'lucide-react'; 
 import { 
   ResponsiveContainer, 
@@ -39,7 +39,6 @@ import {
   Pie, 
   Cell, 
   Tooltip, 
-  Legend, 
   BarChart, 
   Bar, 
   XAxis, 
@@ -53,6 +52,8 @@ interface DocumentoExtendido {
   ruta_archivo: string;
   url_archivo: string;
   fecha_carga?: string;
+  created_at?: string;
+  fecha?: string;
   cliente_id?: string | null;
 }
 
@@ -77,6 +78,41 @@ interface DocumentoDetalle {
 type ChartType = 'pie' | 'tramos' | 'representantes';
 type RangoMoraPill = 'todos' | 'al_dia' | '1_15' | '16_45' | '46_mas';
 
+// HELPER PARA FORMATO DE FECHA Y HORA COMPLETA (DD/MM/YYYY, hh:mm a. m.)
+const formatFechaHora = (fechaRaw?: string) => {
+  if (!fechaRaw) return 'Fecha no disponible';
+  try {
+    const date = new Date(fechaRaw);
+    if (isNaN(date.getTime())) return 'Fecha no disponible';
+    return date.toLocaleString('es-PE', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
+  } catch {
+    return 'Fecha no disponible';
+  }
+};
+
+// HELPER PARA FORMATO ÚNICAMENTE DE HORA (hh:mm a. m.)
+const formatHoraCorta = (fechaRaw?: string) => {
+  if (!fechaRaw) return '';
+  try {
+    const date = new Date(fechaRaw);
+    if (isNaN(date.getTime())) return '';
+    return date.toLocaleTimeString('es-PE', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
+  } catch {
+    return '';
+  }
+};
+
 // HELPER REUTILIZABLE PARA MONEDA EN SOLES
 const fmtSoles = (monto: number, decimales: number = 2, compact: boolean = false) => {
   const val = Number(monto || 0);
@@ -90,36 +126,7 @@ const fmtSoles = (monto: number, decimales: number = 2, compact: boolean = false
   })}`;
 };
 
-// MINI SPARKLINE SVG PARA TARJETAS KPI
-const MiniSparkline = ({ data, color = '#3B82F6' }: { data: number[]; color?: string }) => {
-  if (!data || data.length < 2) return null;
-  const max = Math.max(...data);
-  const min = Math.min(...data);
-  const range = max - min || 1;
-  const width = 80;
-  const height = 24;
-
-  const points = data.map((val, i) => {
-    const x = (i / (data.length - 1)) * width;
-    const y = height - ((val - min) / range) * (height - 4) - 2;
-    return `${x},${y}`;
-  }).join(' ');
-
-  return (
-    <svg width={width} height={height} className="overflow-visible">
-      <polyline
-        fill="none"
-        stroke={color}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        points={points}
-      />
-    </svg>
-  );
-};
-
-// HELPER PARA OBTENER BADGE DE SEVERIDAD DE MORA
+// BADGE DE SEVERIDAD DE MORA
 const renderMoraBadge = (dias: number) => {
   if (dias <= 0) {
     return (
@@ -149,24 +156,20 @@ const renderMoraBadge = (dias: number) => {
   );
 };
 
-// SKELETON COMPONENT PARA ESTADOS DE CARGA
+// SKELETON COMPONENT
 const DashboardSkeleton = () => (
   <div className="space-y-6 p-4 md:p-6 max-w-7xl mx-auto animate-pulse">
-    <div className="h-16 bg-gray-200 dark:bg-slate-800 rounded-2xl w-full" />
-    <div className="h-24 bg-gray-200 dark:bg-slate-800 rounded-2xl w-full" />
+    <div className="h-20 bg-gray-200 dark:bg-slate-800 rounded-3xl w-full" />
+    <div className="h-14 bg-gray-200 dark:bg-slate-800 rounded-2xl w-full" />
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {[...Array(4)].map((_, i) => (
         <div key={i} className="h-32 bg-gray-200 dark:bg-slate-800 rounded-3xl" />
       ))}
     </div>
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-      <div className="h-80 bg-gray-200 dark:bg-slate-800 rounded-3xl" />
-      <div className="h-80 bg-gray-200 dark:bg-slate-800 rounded-3xl" />
-    </div>
   </div>
 );
 
-// CUSTOM TOOLTIP PERSONALIZADO PARA RECHARTS
+// TOOLTIP DE RECHARTS
 const CustomRechartsTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     return (
@@ -202,28 +205,32 @@ export default function DashboardPage() {
   const [selectedDocId, setSelectedDocId] = useState<string>('');
   const [chartType, setChartType] = useState<ChartType>('pie');
 
-  // SELECCIÓN MASIVA
+  // SELECCIÓN Y DRAWER
   const [selectedDocsList, setSelectedDocsList] = useState<string[]>([]);
-
-  // DRAWER (PANEL LATERAL)
   const [activeDrawerDoc, setActiveDrawerDoc] = useState<DocumentoDetalle | null>(null);
-  const [drawerNote, setDrawerNote] = useState('');
 
-  // ALERTA DE RIESGO
+  // ALERTA Y PAGINACIÓN
   const [criticalToast, setCriticalToast] = useState<{ count: number; monto: number } | null>(null);
-
-  // PAGINACIÓN
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 8;
+
+  // DOCUMENTO ACTUALMENTE SELECCIONADO Y SUS METADATOS DE FECHA Y HORA DE CARGA
+  const activeDocument = useMemo(() => {
+    return excelDocs.find(doc => doc.id === selectedDocId) || excelDocs[0] || null;
+  }, [excelDocs, selectedDocId]);
+
+  const activeDocFechaCargaRaw = activeDocument?.fecha_carga || activeDocument?.created_at || activeDocument?.fecha;
+  const activeDocFechaHoraFormatted = useMemo(() => formatFechaHora(activeDocFechaCargaRaw), [activeDocFechaCargaRaw]);
+  const activeDocHoraShort = useMemo(() => formatHoraCorta(activeDocFechaCargaRaw), [activeDocFechaCargaRaw]);
 
   const fetchUserData = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const name = user.user_metadata?.full_name || 
-                     user.user_metadata?.name || 
-                     user.email?.split('@')[0] || 
-                     'Usuario';
+                    user.user_metadata?.name || 
+                    user.email?.split('@')[0] || 
+                    'Usuario';
         setUserName(name);
       }
     } catch (err) {
@@ -271,7 +278,6 @@ export default function DashboardPage() {
       const parsedRows = await parseCobranzaExcelFile(file);
       setAllRows(parsedRows);
 
-      // ALERTA INTELIGENTE PARA DEUDAS CRÍTICAS (+90 DÍAS)
       const criticos = parsedRows.filter((r: any) => Number(r.dias_mora || 0) >= 90);
       if (criticos.length > 0) {
         const sumaCritica = criticos.reduce((acc: number, r: any) => acc + Number(r.saldo || 0), 0);
@@ -327,16 +333,13 @@ export default function DashboardPage() {
     ).sort();
   }, [allRows]);
 
-  // FILTRADO CON QUICK PILLS + REPRESENTANTE
   const filteredRows = useMemo(() => {
     return allRows.filter((row: any) => {
-      // Filtro por Representante
       if (searchTerm) {
         const rep = (row.representante || row.vendedor || '').toLowerCase();
         if (!rep.includes(searchTerm.toLowerCase().trim())) return false;
       }
       
-      // Filtro por Píldora de Rango de Mora
       const dias = Number(row.dias_mora || 0);
       if (selectedPill === 'al_dia') return dias <= 0;
       if (selectedPill === '1_15') return dias >= 1 && dias <= 15;
@@ -492,7 +495,6 @@ export default function DashboardPage() {
     });
   };
 
-  // ACCIONES MASIVAS
   const handleSelectAllInPage = () => {
     const pageDocNums = paginatedDocsInMora.map((d: any) => d.documento || d.num_doc);
     const allSelected = pageDocNums.every(num => selectedDocsList.includes(num));
@@ -504,576 +506,628 @@ export default function DashboardPage() {
     }
   };
 
-  const handleToggleSelectDoc = (numDoc: string) => {
+  const handleToggleDocSelection = (numDoc: string) => {
     setSelectedDocsList(prev => 
-      prev.includes(numDoc) ? prev.filter(id => id !== numDoc) : [...prev, numDoc]
+      prev.includes(numDoc) ? prev.filter(n => n !== numDoc) : [...prev, numDoc]
     );
   };
 
-  // EXPORTAR A CSV
-  const handleExportCSV = () => {
-    if (filteredDocsInMora.length === 0) return toast.error('No hay datos para exportar.');
+  const handleExportSelectedToExcel = () => {
+    if (selectedDocsList.length === 0) return;
+    const itemsToExport = filteredDocsInMora.filter((d: any) => selectedDocsList.includes(d.documento || d.num_doc));
     
-    const headers = ['Cliente', 'Documento', 'Dias Mora', 'Saldo'];
-    const rows = filteredDocsInMora.map((d: any) => [
+    const headers = ["Cliente", "Documento", "Saldo (S/.)", "Dias Mora", "Representante"];
+    const rows = itemsToExport.map((d: any) => [
       `"${d.cliente || ''}"`,
       `"${d.documento || d.num_doc || ''}"`,
+      d.saldo || 0,
       d.dias_mora || 0,
-      d.saldo || 0
+      `"${d.representante || d.vendedor || ''}"`
     ]);
 
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
     const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Reporte_Cobranzas_${new Date().toISOString().slice(0, 10)}.csv`);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `cobranza_seleccionados_${new Date().toISOString().slice(0,10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    toast.success('Reporte CSV descargado');
+    toast.success(`Exportados ${selectedDocsList.length} documentos`);
   };
 
-  // ENVIAR WHATSAPP DE RECORDATORIO
-  const handleSendWhatsApp = (doc: DocumentoDetalle) => {
-    const text = `Hola ${doc.cliente}, le saludamos del departamento de Cobranzas. Le recordamos que su comprobante ${doc.documento} presenta un saldo pendiente de S/. ${doc.saldo.toFixed(2)} con ${doc.dias_mora} días de morosidad. Quedamos atentos a su confirmación de pago.`;
-    const url = `https://wa.me/${doc.telefono || ''}?text=${encodeURIComponent(text)}`;
-    window.open(url, '_blank');
-  };
-
-  if (loading) {
-    return <DashboardSkeleton />;
-  }
+  if (loading) return <DashboardSkeleton />;
 
   return (
-    <div className="space-y-6 p-4 md:p-6 max-w-7xl mx-auto pb-12 relative">
+    <div className="min-h-screen bg-slate-50/50 dark:bg-slate-950 p-4 md:p-6 lg:p-8 font-sans space-y-6 transition-colors duration-200">
       
-      {/* ALERTA INTELIGENTE (TOAST DE MORA CRÍTICA) */}
+      {/* 1. TOP BAR DE BIENVENIDA CON LA MUESTRA EXPLICITA DE FECHA Y HORA DE SUBIDA */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-5 rounded-3xl border border-gray-100 dark:border-slate-800 shadow-sm">
+        
+        {/* SALUDO E INDICADOR DE SYNC CON LA HORA DEL DOCUMENTO */}
+        <div>
+          <h1 className="text-xl md:text-2xl font-black text-slate-800 dark:text-slate-100 tracking-tight flex items-center gap-2">
+            Hola, {userName} 👋
+          </h1>
+          <div className="flex flex-wrap items-center gap-2 mt-1">
+            <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+              Resumen de Cartera y Gestión de Cobranzas
+            </span>
+            {activeDocHoraShort && (
+              <span className="inline-flex items-center gap-1 font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-100 dark:border-emerald-900 px-2 py-0.5 rounded-full text-[10px]">
+                <Clock className="w-3 h-3 animate-pulse" /> Sync {activeDocHoraShort}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* CONTROLES DE ARCHIVOS Y FECHA Y HORA DE SUBIDA VISIBLE EN PARTE SUPERIOR */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          
+          {/* DESPLEGABLE CON INFORMACIÓN EXPANDIDA DE FECHA/HORA AL LADO DEL NOMBRE */}
+          <div className="relative flex items-center bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-gray-200 dark:border-slate-800 p-1.5 pr-3 shadow-inner">
+            <FileSpreadsheet className="h-4 w-4 text-emerald-600 ml-2 mr-1 flex-shrink-0" />
+            
+            <div className="flex flex-col text-left">
+              <select
+                value={selectedDocId}
+                onChange={(e) => setSelectedDocId(e.target.value)}
+                className="bg-transparent font-extrabold text-slate-800 dark:text-slate-100 text-xs outline-none cursor-pointer max-w-[240px] truncate"
+              >
+                {excelDocs.map((doc) => (
+                  <option key={doc.id} value={doc.id} className="bg-white dark:bg-slate-900 font-medium">
+                    {doc.nombre}
+                  </option>
+                ))}
+              </select>
+
+              {/* MOSTRAR EXPLÍCITAMENTE FECHA Y HORA DE SUBIDA DEBAJO/AL LADO */}
+              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                <Calendar className="w-3 h-3 text-blue-500" />
+                Actualizado hasta: <strong className="text-blue-600 dark:text-blue-400">{activeDocFechaHoraFormatted}</strong>
+              </span>
+            </div>
+          </div>
+
+          {/* MODO NÚMEROS COMPACTOS */}
+          <button
+            onClick={() => setCompactNumbers(!compactNumbers)}
+            className={`px-3 py-2 rounded-2xl border transition flex items-center gap-1.5 text-xs font-bold ${
+              compactNumbers 
+                ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-200 text-blue-600 dark:text-blue-400' 
+                : 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+            }`}
+            title="Conmutar vista de montos compactos (K/M)"
+          >
+            {compactNumbers ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            <span className="hidden sm:inline">{compactNumbers ? 'S/. Compacto' : 'S/. Completo'}</span>
+          </button>
+
+          {/* BOTÓN REFRESCAR */}
+          <button
+            onClick={loadDashboardData}
+            className="p-2.5 rounded-2xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
+            title="Recargar datos"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* 2. BARRA DE FILTROS RÁPIDOS Y BÚSQUEDA */}
+      <div className="bg-white dark:bg-slate-900 p-4 rounded-3xl border border-gray-100 dark:border-slate-800 shadow-sm space-y-3">
+        <div className="flex flex-col md:flex-row items-center justify-between gap-3">
+          
+          <div className="flex flex-wrap items-center gap-1.5 w-full md:w-auto">
+            <span className="text-xs font-bold text-slate-400 dark:text-slate-500 mr-1 flex items-center gap-1">
+              <Filter className="w-3.5 h-3.5" /> Tramo:
+            </span>
+            {[
+              { key: 'todos', label: 'Todos' },
+              { key: 'al_dia', label: '🟢 Al Día' },
+              { key: '1_15', label: '🟢 1-15d' },
+              { key: '16_45', label: '🟡 16-45d' },
+              { key: '46_mas', label: '🔴 +46d' }
+            ].map(pill => (
+              <button
+                key={pill.key}
+                onClick={() => setSelectedPill(pill.key as RangoMoraPill)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                  selectedPill === pill.key
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                }`}
+              >
+                {pill.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2 w-full md:w-auto">
+            <select
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="px-3 py-1.5 rounded-xl border border-gray-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-xs text-slate-700 dark:text-slate-300 font-bold outline-none focus:ring-2 focus:ring-blue-500 w-full md:w-48"
+            >
+              <option value="">👤 Todos los Vendedores</option>
+              {listaRepresentantes.map((rep, idx) => (
+                <option key={idx} value={rep}>{rep}</option>
+              ))}
+            </select>
+
+            {activeFiltersCount > 0 && (
+              <button
+                onClick={() => {
+                  setSearchTerm('');
+                  setSelectedPill('todos');
+                }}
+                className="px-3 py-1.5 rounded-xl bg-red-50 dark:bg-red-950/50 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-900 text-xs font-bold flex items-center gap-1 hover:bg-red-100 transition whitespace-nowrap"
+              >
+                <X className="w-3.5 h-3.5" /> Limpiar ({activeFiltersCount})
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ALERTA INTELIGENTE DE RIESGO DE CARTERA */}
       {criticalToast && (
-        <div className="rounded-2xl border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/50 p-4 shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in slide-in-from-top-4 duration-300">
+        <div className="bg-gradient-to-r from-red-500 to-rose-600 text-white p-4 rounded-3xl shadow-lg flex items-center justify-between gap-3 animate-fade-in">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-red-500 text-white rounded-xl shrink-0">
-              <Bell className="h-5 w-5 animate-bounce" />
+            <div className="p-2.5 bg-white/20 rounded-2xl backdrop-blur-md">
+              <Bell className="w-5 h-5 text-white animate-bounce" />
             </div>
             <div>
-              <h4 className="font-bold text-xs text-red-900 dark:text-red-200 uppercase tracking-wider">Alerta de Riesgo Alto</h4>
-              <p className="text-xs text-red-700 dark:text-red-300 mt-0.5">
-                Se detectaron <strong>{criticalToast.count} documentos</strong> en mora crítica (+90 días) que suman <strong>{fmtSoles(criticalToast.monto)}</strong>.
+              <p className="font-extrabold text-xs uppercase tracking-wider text-red-100">Alerta de Deuda Crítica (+90 Días)</p>
+              <p className="text-xs text-white/90 font-medium">
+                Se detectaron <strong className="underline">{criticalToast.count} documentos</strong> en mora extrema acumulando <strong>{fmtSoles(criticalToast.monto)}</strong>.
               </p>
             </div>
           </div>
           <button
             onClick={() => setSelectedPill('46_mas')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition shrink-0"
+            className="px-3 py-1.5 bg-white text-red-600 rounded-xl text-xs font-black shadow hover:bg-red-50 transition whitespace-nowrap flex items-center gap-1"
           >
-            Filtrar Críticos <ArrowRight className="h-3.5 w-3.5" />
+            Filtrar Morosos <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
       )}
 
-      {/* HEADER DE USUARIO + STATUS DOT DE SINCRONIZACIÓN */}
-      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-950/80 text-blue-600 dark:text-blue-400 font-bold text-xs">
-              {userName ? userName.charAt(0).toUpperCase() : <UserIcon className="h-3.5 w-3.5" />}
-            </div>
-            <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-2.5 py-0.5 rounded-full">
-              ¡Hola, {userName || 'Bienvenido'}!
-            </span>
-            <div className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 px-2 py-0.5 rounded-full">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
-              <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">
-                Sincronizado {lastSyncTime ? `a las ${lastSyncTime}` : 'recientemente'}
-              </span>
+      {/* 3. GRID DE TARJETAS METRICAS (KPIs) */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-gray-100 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-3 hover:border-blue-200 transition">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Clientes Activos</span>
+            <div className="p-2.5 bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 rounded-2xl">
+              <Users className="w-5 h-5" />
             </div>
           </div>
-          <h1 className="text-2xl font-bold text-gray-800 dark:text-slate-100">Panel de Control de Cobranzas</h1>
+          <div>
+            <p className="text-2xl font-black text-slate-800 dark:text-slate-100">{metrics.clientesActivos}</p>
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 font-medium mt-0.5">
+              Ticket Promedio: <strong className="text-slate-700 dark:text-slate-300">{fmtSoles(metrics.ticketPromedio, 2, compactNumbers)}</strong>
+            </p>
+          </div>
         </div>
 
-        <button
-          onClick={() => setCompactNumbers(!compactNumbers)}
-          className="self-start md:self-auto inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-600 dark:text-slate-300 hover:bg-gray-50 transition"
-        >
-          {compactNumbers ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-          {compactNumbers ? 'Ver cifras completas' : 'Abreviar cifras (K/M)'}
-        </button>
-      </div>
-
-      {/* CONTENEDOR TIPO CARD SUAVE CON FILTROS Y QUICK PILLS */}
-      <div className="rounded-2xl border border-gray-100 dark:border-slate-700/60 bg-gradient-to-r from-gray-50/80 to-blue-50/30 dark:from-slate-800/60 dark:to-slate-800/30 p-3.5 shadow-sm space-y-3">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-2">
-            <Filter className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-            <span className="text-xs font-bold text-gray-700 dark:text-slate-200 uppercase tracking-wide">
-              Filtros de Análisis
-            </span>
-            {activeFiltersCount > 0 && (
-              <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-600 text-white">
-                {activeFiltersCount} activo{activeFiltersCount > 1 ? 's' : ''}
-              </span>
-            )}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2.5">
-            <div className="relative flex-1 sm:flex-none">
-              <FileSpreadsheet className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-blue-500" />
-              <select
-                value={selectedDocId}
-                onChange={(e) => setSelectedDocId(e.target.value)}
-                className="w-full min-w-[190px] rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 py-1.5 pl-8 pr-7 text-xs font-semibold text-gray-800 dark:text-slate-100 outline-none cursor-pointer appearance-none truncate"
-              >
-                {excelDocs.map((doc) => (
-                  <option key={doc.id} value={doc.id}>
-                    {doc.nombre}
-                  </option>
-                ))}
-              </select>
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-gray-100 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-3 hover:border-indigo-200 transition">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Cartera Total</span>
+            <div className="p-2.5 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 rounded-2xl">
+              <DollarSign className="w-5 h-5" />
             </div>
+          </div>
+          <div>
+            <p className="text-2xl font-black text-slate-800 dark:text-slate-100">{fmtSoles(metrics.saldoPendienteTotal, 2, compactNumbers)}</p>
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 font-medium mt-0.5">
+              Documentos Totales: <strong className="text-slate-700 dark:text-slate-300">{filteredRows.length}</strong>
+            </p>
+          </div>
+        </div>
 
-            <div className="relative flex-1 sm:flex-none">
-              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
-              <select
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full min-w-[190px] rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 py-1.5 pl-8 pr-7 text-xs font-medium text-gray-800 dark:text-slate-100 outline-none cursor-pointer appearance-none truncate"
-              >
-                <option value="">Todos los representantes</option>
-                {listaRepresentantes.map((rep: any, idx: number) => (
-                  <option key={idx} value={rep}>{rep}</option>
-                ))}
-              </select>
-              {searchTerm && (
-                <button onClick={() => setSearchTerm('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
-                  <X className="h-3 w-3" />
-                </button>
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-gray-100 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-3 hover:border-red-200 transition">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-red-500 dark:text-red-400 uppercase tracking-wider">Deuda En Mora</span>
+            <div className="p-2.5 bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 rounded-2xl">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+          </div>
+          <div>
+            <div className="flex items-baseline justify-between">
+              <p className="text-2xl font-black text-red-600 dark:text-red-400">{fmtSoles(metrics.montoEnMoraTotal, 2, compactNumbers)}</p>
+              {previousRows.length > 0 && metrics.moraDeltaPorcentaje !== 0 && (
+                <span className={`inline-flex items-center text-[10px] font-black px-1.5 py-0.5 rounded-md ${
+                  metrics.moraDeltaPorcentaje > 0 
+                    ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' 
+                    : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                }`}>
+                  {metrics.moraDeltaPorcentaje > 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                  {Math.abs(metrics.moraDeltaPorcentaje).toFixed(1)}%
+                </span>
               )}
             </div>
-
-            <button
-              onClick={loadDashboardData}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-gray-700 dark:text-slate-200 hover:bg-gray-100 transition"
-            >
-              <RefreshCw className="h-3.5 w-3.5 text-blue-500" />
-              Actualizar
-            </button>
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 font-medium mt-0.5">
+              Documentos Vencidos: <strong className="text-red-600 dark:text-red-400">{metrics.conteoEnMora}</strong>
+            </p>
           </div>
         </div>
 
-        {/* QUICK PILLS (FILTROS RÁPIDOS POR MORA) */}
-        <div className="flex flex-wrap items-center gap-2 pt-2.5 border-t border-gray-200/60 dark:border-slate-700/50">
-          <span className="text-[11px] font-bold text-gray-400 mr-1">Filtrar Tramo:</span>
-          {[
-            { id: 'todos', label: 'Todos' },
-            { id: 'al_dia', label: '🟢 Al día' },
-            { id: '1_15', label: '🟢 1-15 días' },
-            { id: '16_45', label: '🟡 16-45 días' },
-            { id: '46_mas', label: '🔴 +46 días' },
-          ].map((pill) => (
-            <button
-              key={pill.id}
-              onClick={() => setSelectedPill(pill.id as RangoMoraPill)}
-              className={`px-3 py-1 rounded-full text-xs font-bold transition ${
-                selectedPill === pill.id
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-700 hover:bg-gray-100'
-              }`}
-            >
-              {pill.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* TARJETAS KPI CON SPARKLINES Y FORMATO DE CIFRAS */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {/* CLIENTES ACTIVOS */}
-        <div className="relative overflow-hidden rounded-3xl bg-white dark:bg-slate-800 p-5 shadow-xs border border-gray-100 dark:border-slate-700/60 flex flex-col justify-between space-y-3">
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-gray-100 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-3 hover:border-emerald-200 transition">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">Clientes Activos</span>
-            <div className="p-2 bg-blue-50 dark:bg-blue-950/50 rounded-2xl text-blue-600 dark:text-blue-400">
-              <Users className="h-4 w-4" />
+            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Por Vencer / Al Día</span>
+            <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded-2xl">
+              <Clock className="w-5 h-5" />
             </div>
           </div>
           <div>
-            <p className="text-2xl font-black tracking-tight text-gray-900 dark:text-slate-100">
-              {metrics.clientesActivos.toLocaleString('es-PE')}
-            </p>
-            <p className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 mt-1">
-              Ticket Prom: {fmtSoles(metrics.ticketPromedio, 0, compactNumbers)}
+            <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">{fmtSoles(metrics.montoPorVencerTotal, 2, compactNumbers)}</p>
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 font-medium mt-0.5">
+              Documentos Al Día: <strong className="text-emerald-600 dark:text-emerald-400">{metrics.conteoAlDia}</strong>
             </p>
           </div>
         </div>
 
-        {/* SALDO PENDIENTE + SPARKLINE */}
-        <div className="relative overflow-hidden rounded-3xl bg-white dark:bg-slate-800 p-5 shadow-xs border border-gray-100 dark:border-slate-700/60 flex flex-col justify-between space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">Saldo Total Pendiente</span>
-            <div className="p-2 bg-amber-50 dark:bg-amber-950/50 rounded-2xl text-amber-600 dark:text-amber-400">
-              <DollarSign className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="flex items-end justify-between gap-2">
-            <div>
-              <p className="text-xl md:text-2xl font-black tracking-tight text-gray-900 dark:text-slate-100">
-                {fmtSoles(metrics.saldoPendienteTotal, 2, compactNumbers)}
-              </p>
-              <span className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
-                {filteredRows.length} documentos
-              </span>
-            </div>
-            <MiniSparkline data={[120, 140, 135, 160, 150, 180, metrics.saldoPendienteTotal / 1000]} color="#F59E0B" />
-          </div>
-        </div>
-
-        {/* CARTERA EN MORA + SPARKLINE */}
-        <div className="relative overflow-hidden rounded-3xl bg-white dark:bg-slate-800 p-5 shadow-xs border border-gray-100 dark:border-slate-700/60 flex flex-col justify-between space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">Cartera en Mora</span>
-            <div className="p-2 bg-red-50 dark:bg-red-950/50 rounded-2xl text-red-600 dark:text-red-400">
-              <AlertTriangle className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="flex items-end justify-between gap-2">
-            <div>
-              <p className="text-xl md:text-2xl font-black tracking-tight text-red-600 dark:text-red-400">
-                {fmtSoles(metrics.montoEnMoraTotal, 2, compactNumbers)}
-              </p>
-              <div className="flex items-center gap-1 mt-1">
-                {metrics.moraDeltaPorcentaje <= 0 ? (
-                  <span className="inline-flex items-center text-[10px] font-extrabold text-emerald-700 bg-emerald-100 dark:bg-emerald-950 px-1.5 py-0.5 rounded-md">
-                    <ArrowDownRight className="h-3 w-3 mr-0.5" />
-                    {Math.abs(metrics.moraDeltaPorcentaje).toFixed(1)}% vs ant.
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center text-[10px] font-extrabold text-red-700 bg-red-100 dark:bg-red-950 px-1.5 py-0.5 rounded-md">
-                    <ArrowUpRight className="h-3 w-3 mr-0.5" />
-                    +{metrics.moraDeltaPorcentaje.toFixed(1)}% vs ant.
-                  </span>
-                )}
-              </div>
-            </div>
-            <MiniSparkline data={[50, 65, 60, 75, 70, metrics.montoEnMoraTotal / 1000]} color="#EF4444" />
-          </div>
-        </div>
-
-        {/* POR VENCER */}
-        <div className="relative overflow-hidden rounded-3xl bg-white dark:bg-slate-800 p-5 shadow-xs border border-gray-100 dark:border-slate-700/60 flex flex-col justify-between space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">Por Vencer (Al Día)</span>
-            <div className="p-2 bg-emerald-50 dark:bg-emerald-950/50 rounded-2xl text-emerald-600 dark:text-emerald-400">
-              <Clock className="h-4 w-4" />
-            </div>
-          </div>
-          <div>
-            <p className="text-xl md:text-2xl font-black tracking-tight text-emerald-600 dark:text-emerald-400">
-              {fmtSoles(metrics.montoPorVencerTotal, 2, compactNumbers)}
-            </p>
-            <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400 mt-1 block">
-              {metrics.conteoAlDia} docs vigentes
-            </span>
-          </div>
-        </div>
       </div>
 
-      {/* GRÁFICOS Y TABLA DE VENCIDOS CON TOOLBAR Y DRAWER */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* GRÁFICO */}
-        <div className="rounded-3xl bg-white dark:bg-slate-800 p-6 shadow-xs border border-gray-100 dark:border-slate-700/50 flex flex-col justify-between">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+      {/* 4. SECCIÓN GRÁFICOS INTERACTIVOS */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <div className="lg:col-span-8 bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800 shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-100 dark:border-slate-800">
             <div>
-              <h3 className="font-bold text-gray-800 dark:text-slate-100 text-base">Análisis Gráfico</h3>
-              <p className="text-xs text-gray-400">Distribución de la cartera</p>
+              <h3 className="font-extrabold text-slate-800 dark:text-slate-100 text-sm flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-blue-600" /> Distribución y Salud de Cartera
+              </h3>
+              <p className="text-xs text-slate-400 dark:text-slate-500">Visualización de saldos por estado y zonas</p>
             </div>
 
-            <div className="inline-flex rounded-xl bg-gray-100 dark:bg-slate-700/60 p-1 gap-1">
+            <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl text-xs font-bold">
               <button
                 onClick={() => setChartType('pie')}
-                className={`flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg transition ${
-                  chartType === 'pie' ? 'bg-white dark:bg-slate-800 text-blue-600 shadow-xs' : 'text-gray-500'
+                className={`px-3 py-1.5 rounded-xl transition flex items-center gap-1 ${
+                  chartType === 'pie' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500'
                 }`}
               >
-                <PieIcon className="h-3.5 w-3.5" /> Estado
+                <PieIcon className="w-3.5 h-3.5" /> Estado
               </button>
               <button
                 onClick={() => setChartType('tramos')}
-                className={`flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg transition ${
-                  chartType === 'tramos' ? 'bg-white dark:bg-slate-800 text-blue-600 shadow-xs' : 'text-gray-500'
+                className={`px-3 py-1.5 rounded-xl transition flex items-center gap-1 ${
+                  chartType === 'tramos' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500'
                 }`}
               >
-                <BarChart3 className="h-3.5 w-3.5" /> Tramos
+                <BarChart3 className="w-3.5 h-3.5" /> Tramos
               </button>
               <button
                 onClick={() => setChartType('representantes')}
-                className={`flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg transition ${
-                  chartType === 'representantes' ? 'bg-white dark:bg-slate-800 text-blue-600 shadow-xs' : 'text-gray-500'
+                className={`px-3 py-1.5 rounded-xl transition flex items-center gap-1 ${
+                  chartType === 'representantes' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500'
                 }`}
               >
-                <BarChartHorizontal className="h-3.5 w-3.5" /> Top Reps
+                <UserIcon className="w-3.5 h-3.5" /> Vendedores
               </button>
             </div>
           </div>
 
-          <div className="w-full h-[300px]">
+          <div className="h-64 w-full pt-2">
             <ResponsiveContainer width="100%" height="100%">
               {chartType === 'pie' ? (
                 <PieChart>
-                  <Pie data={estadoData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={55} outerRadius={95} paddingAngle={3}>
-                    {estadoData.map((entry, index) => <Cell key={index} fill={entry.color} />)}
+                  <Pie
+                    data={estadoData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={85}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {estadoData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
                   </Pie>
                   <Tooltip content={<CustomRechartsTooltip />} />
-                  <Legend verticalAlign="bottom" height={36} />
                 </PieChart>
               ) : chartType === 'tramos' ? (
-                <BarChart data={tramosData} margin={{ top: 15, right: 10, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
-                  <XAxis dataKey="tramo" tick={{ fontSize: 11, fill: '#94A3B8' }} />
-                  <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} />
+                <BarChart data={tramosData}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
+                  <XAxis dataKey="tramo" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
                   <Tooltip content={<CustomRechartsTooltip />} />
-                  <Bar dataKey="cantidad" radius={[6, 6, 0, 0]}>
-                    {tramosData.map((entry, index) => <Cell key={index} fill={entry.color} />)}
+                  <Bar dataKey="cantidad" radius={[8, 8, 0, 0]}>
+                    {tramosData.map((entry, index) => (
+                      <Cell key={`cell-bar-${index}`} fill={entry.color} />
+                    ))}
                   </Bar>
                 </BarChart>
               ) : (
-                <BarChart data={representantesData} layout="vertical" margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#334155" />
-                  <XAxis type="number" tick={{ fontSize: 10, fill: '#94A3B8' }} tickFormatter={(val) => `S/.${(val/1000).toFixed(0)}k`} />
-                  <YAxis dataKey="nombre" type="category" tick={{ fontSize: 11, fill: '#94A3B8' }} width={90} />
+                <BarChart data={representantesData} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
+                  <XAxis type="number" tick={{ fontSize: 10 }} />
+                  <YAxis dataKey="nombre" type="category" tick={{ fontSize: 10 }} width={80} />
                   <Tooltip content={<CustomRechartsTooltip />} />
-                  <Bar dataKey="saldo" fill="#3B82F6" radius={[0, 6, 6, 0]} />
+                  <Bar dataKey="saldo" fill="#3B82F6" radius={[0, 8, 8, 0]} />
                 </BarChart>
               )}
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* TABLA DE DOCUMENTOS VENCIDOS */}
-        <div className="rounded-3xl bg-white dark:bg-slate-800 p-6 shadow-xs border border-gray-100 dark:border-slate-700/50 flex flex-col justify-between space-y-3">
+        <div className="lg:col-span-4 bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4">
           <div>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
-              <div>
-                <h3 className="font-bold text-gray-800 dark:text-slate-100">Documentos Vencidos</h3>
-                <p className="text-xs text-gray-400">Haz clic en una fila para desplegar detalles y acciones rápidas</p>
-              </div>
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-slate-800">
+              <h3 className="font-extrabold text-slate-800 dark:text-slate-100 text-sm flex items-center gap-1.5">
+                <ShieldAlert className="w-4 h-4 text-red-500" /> Riesgo Crítico (+90 días)
+              </h3>
+              <span className="text-[10px] font-bold bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-400 px-2 py-0.5 rounded-full">
+                {metrics.clientesCriticosList.length} Clientes
+              </span>
+            </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleExportCSV}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl border border-gray-200 dark:border-slate-700 text-xs font-semibold text-gray-700 dark:text-slate-200 hover:bg-gray-50 transition"
-                  title="Exportar tabla a CSV"
-                >
-                  <Download className="h-3.5 w-3.5 text-blue-500" /> Exportar
-                </button>
-
-                <div className="relative w-full sm:w-36">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Buscar..."
-                    value={searchTableTerm}
-                    onChange={(e) => setSearchTableTerm(e.target.value)}
-                    className="w-full pl-8 pr-3 py-1 bg-gray-50 dark:bg-slate-900/60 border border-gray-200 dark:border-slate-700 rounded-xl text-xs outline-none focus:border-blue-500"
-                  />
+            <div className="mt-3 space-y-2.5 max-h-56 overflow-y-auto pr-1">
+              {metrics.clientesCriticosList.slice(0, 5).map((critico, idx) => (
+                <div key={idx} className="p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-gray-100 dark:border-slate-800 flex items-center justify-between text-xs">
+                  <div className="truncate pr-2">
+                    <p className="font-extrabold text-slate-800 dark:text-slate-200 truncate">{critico.cliente}</p>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500">
+                      Rep: {critico.representante}
+                    </p>
+                  </div>
+                  <div className="text-right whitespace-nowrap">
+                    <p className="font-black text-red-600 dark:text-red-400">{fmtSoles(critico.saldoTotal, 2, compactNumbers)}</p>
+                    <span className="text-[9px] font-bold text-red-500 bg-red-100 dark:bg-red-950/80 px-1.5 py-0.2 rounded">
+                      {critico.maxDiasMora}d mora
+                    </span>
+                  </div>
                 </div>
-              </div>
+              ))}
+              {metrics.clientesCriticosList.length === 0 && (
+                <p className="text-xs text-slate-400 text-center py-8">🎉 No se registran clientes con mora crítica superior a 90 días.</p>
+              )}
             </div>
           </div>
 
-          <div className="flex-1 overflow-auto min-h-[240px] border border-gray-100 dark:border-slate-700/60 rounded-2xl">
-            {filteredDocsInMora.length === 0 ? (
-              <div className="flex flex-col items-center justify-center p-10 text-center space-y-2">
-                <FileSearch className="h-9 w-9 text-gray-300 dark:text-slate-600" />
-                <p className="text-xs font-semibold text-gray-600 dark:text-slate-300">
-                  No se encontraron documentos vencidos para este filtro
-                </p>
-              </div>
-            ) : (
-              <table className="w-full text-left text-xs border-collapse">
-                <thead className="bg-gray-50 dark:bg-slate-900/60 sticky top-0 text-gray-600 dark:text-slate-300 font-semibold border-b border-gray-100 dark:border-slate-700">
-                  <tr>
-                    <th className="p-2.5 w-8">
-                      <button onClick={handleSelectAllInPage} className="text-gray-400 hover:text-gray-600">
-                        <CheckSquare className="h-3.5 w-3.5" />
-                      </button>
-                    </th>
-                    <th className="p-2.5">Cliente</th>
-                    <th className="p-2.5">Documento</th>
-                    <th className="p-2.5 text-center">Nivel Riesgo</th>
-                    <th className="p-2.5 text-right">Saldo</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50 dark:divide-slate-700/50">
-                  {paginatedDocsInMora.map((doc: any, index: number) => {
-                    const numDoc = doc.documento || doc.num_doc || '';
-                    const diasMora = Number(doc.dias_mora || 0);
-                    const isSelected = selectedDocsList.includes(numDoc);
+          <button
+            onClick={() => navigate('/clientes')}
+            className="w-full py-2.5 bg-slate-800 hover:bg-slate-900 dark:bg-slate-800 dark:hover:bg-slate-700 text-white rounded-2xl text-xs font-bold transition flex items-center justify-center gap-1.5"
+          >
+            Ver Directorio Completo 360° <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
 
-                    return (
-                      <tr 
-                        key={index} 
-                        className="hover:bg-blue-50/50 dark:hover:bg-slate-700/30 transition cursor-pointer"
-                        onClick={() => setActiveDrawerDoc({
-                          cliente: doc.cliente || 'Desconocido',
-                          documento: numDoc,
-                          saldo: Number(doc.saldo || 0),
-                          dias_mora: diasMora,
-                          representante: doc.representante || doc.vendedor || 'No asignado',
-                          telefono: doc.telefono || ''
-                        })}
-                      >
-                        <td className="p-2.5" onClick={(e) => e.stopPropagation()}>
-                          <button onClick={() => handleToggleSelectDoc(numDoc)} className="text-gray-400 hover:text-blue-600">
-                            {isSelected ? <CheckSquare className="h-3.5 w-3.5 text-blue-600" /> : <Square className="h-3.5 w-3.5" />}
-                          </button>
-                        </td>
-                        <td className="p-2.5 font-medium truncate max-w-[110px]">{doc.cliente || 'Desconocido'}</td>
-                        <td className="p-2.5">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDocumentClick(numDoc);
-                            }}
-                            className="font-mono text-blue-600 dark:text-blue-400 hover:underline font-semibold"
-                          >
-                            {numDoc || '-'}
-                          </button>
-                        </td>
-                        <td className="p-2.5 text-center">
-                          {renderMoraBadge(diasMora)}
-                        </td>
-                        <td className="p-2.5 text-right font-semibold text-red-600 dark:text-red-400">
-                          {fmtSoles(doc.saldo, 2, compactNumbers)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+      </div>
+
+      {/* 5. TABLA DE DOCUMENTOS EN MORA Y ACCIONES MASIVAS */}
+      <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800 shadow-sm space-y-4">
+        
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-gray-100 dark:border-slate-800">
+          <div>
+            <h3 className="font-extrabold text-slate-800 dark:text-slate-100 text-sm flex items-center gap-2">
+              <FileSearch className="w-4 h-4 text-blue-600" /> Detalle de Documentos
+            </h3>
+            <p className="text-xs text-slate-400 dark:text-slate-500">
+              Listado detallado con gestión directa y accesos a cobros
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 w-full md:w-auto">
+            <div className="relative w-full md:w-64">
+              <input
+                type="text"
+                placeholder="Buscar por cliente o doc..."
+                value={searchTableTerm}
+                onChange={(e) => setSearchTableTerm(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-gray-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-xs text-slate-700 dark:text-slate-300 font-medium outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            </div>
+
+            {selectedDocsList.length > 0 && (
+              <button
+                onClick={handleExportSelectedToExcel}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-sm whitespace-nowrap"
+              >
+                <Download className="w-3.5 h-3.5" /> Exportar ({selectedDocsList.length})
+              </button>
             )}
           </div>
+        </div>
 
-          {/* PAGINACIÓN */}
-          <div className="pt-2 border-t border-gray-100 dark:border-slate-700 flex items-center justify-between text-xs text-gray-400">
-            <span>Pág <strong>{currentPage}</strong> de <strong>{totalPages}</strong></span>
-            <div className="flex gap-1">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-gray-100 dark:border-slate-800 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">
+                <th className="p-3 w-10 text-center">
+                  <button onClick={handleSelectAllInPage} className="text-slate-400 hover:text-blue-600">
+                    <CheckSquare className="w-4 h-4" />
+                  </button>
+                </th>
+                <th className="p-3">Cliente / RUC</th>
+                <th className="p-3">Documento</th>
+                <th className="p-3 text-right">Saldo</th>
+                <th className="p-3 text-center">Estado Mora</th>
+                <th className="p-3">Vendedor</th>
+                <th className="p-3 text-center">Acciones</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50 dark:divide-slate-800/60">
+              {paginatedDocsInMora.map((doc: any, index: number) => {
+                const numDoc = doc.documento || doc.num_doc || 'S/N';
+                const dias = Number(doc.dias_mora || 0);
+                const isSelected = selectedDocsList.includes(numDoc);
+
+                return (
+                  <tr key={index} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition group">
+                    <td className="p-3 text-center">
+                      <button onClick={() => handleToggleDocSelection(numDoc)} className="text-slate-400 hover:text-blue-600">
+                        {isSelected ? <CheckSquare className="w-4 h-4 text-blue-600" /> : <Square className="w-4 h-4" />}
+                      </button>
+                    </td>
+                    <td className="p-3">
+                      <p className="font-extrabold text-slate-800 dark:text-slate-200">{doc.cliente || 'Desconocido'}</p>
+                      <p className="text-[10px] text-slate-400 font-mono">{doc.ruc_dni || 'S/N'}</p>
+                    </td>
+                    <td className="p-3">
+                      <button
+                        onClick={() => handleDocumentClick(numDoc)}
+                        className="font-mono font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                      >
+                        {numDoc}
+                      </button>
+                    </td>
+                    <td className="p-3 text-right font-black text-slate-800 dark:text-slate-100">
+                      {fmtSoles(doc.saldo, 2, compactNumbers)}
+                    </td>
+                    <td className="p-3 text-center">
+                      {renderMoraBadge(dias)}
+                    </td>
+                    <td className="p-3 text-slate-600 dark:text-slate-400 font-medium">
+                      {doc.representante || doc.vendedor || 'No Asignado'}
+                    </td>
+                    <td className="p-3 text-center">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <button
+                          onClick={() => handleDocumentClick(numDoc)}
+                          className="p-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 hover:bg-blue-100 transition"
+                          title="Ir a gestión de cobro"
+                        >
+                          <DollarSign className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setActiveDrawerDoc({
+                            cliente: doc.cliente,
+                            documento: numDoc,
+                            saldo: doc.saldo,
+                            dias_mora: dias,
+                            representante: doc.representante || doc.vendedor,
+                            fecha_vencimiento: doc.fecha_venc,
+                            telefono: doc.telefono
+                          })}
+                          className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition"
+                          title="Ver Ficha Rápida"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {paginatedDocsInMora.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="p-8 text-center text-slate-400 font-medium">
+                    No se encontraron documentos con los filtros aplicados.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between pt-3 border-t border-gray-100 dark:border-slate-800 text-xs">
+            <span className="text-slate-400 dark:text-slate-500">
+              Página <strong>{currentPage}</strong> de <strong>{totalPages}</strong> ({filteredDocsInMora.length} registros)
+            </span>
+            <div className="flex items-center gap-1">
               <button
+                onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
                 disabled={currentPage === 1}
-                onClick={() => setCurrentPage(p => p - 1)}
-                className="p-1 border rounded-lg disabled:opacity-40"
+                className="p-1.5 rounded-xl border border-gray-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 disabled:opacity-40 hover:bg-slate-50 transition"
               >
-                <ChevronLeft className="h-4 w-4" />
+                <ChevronLeft className="w-4 h-4" />
               </button>
               <button
-                disabled={currentPage >= totalPages}
-                onClick={() => setCurrentPage(p => p + 1)}
-                className="p-1 border rounded-lg disabled:opacity-40"
+                onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="p-1.5 rounded-xl border border-gray-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 disabled:opacity-40 hover:bg-slate-50 transition"
               >
-                <ChevronRight className="h-4 w-4" />
+                <ChevronRight className="w-4 h-4" />
               </button>
             </div>
           </div>
-        </div>
+        )}
+
       </div>
 
-      {/* SECCIÓN MORA CRÍTICA (+90 DÍAS) */}
-      <div className="bg-white dark:bg-slate-800 rounded-3xl p-5 border border-gray-100 dark:border-slate-700/50 shadow-xs space-y-3">
-        <div className="flex items-center justify-between border-b border-gray-100 dark:border-slate-700/60 pb-2">
-          <div className="flex items-center gap-2">
-            <ShieldAlert className="h-5 w-5 text-red-500" />
-            <h3 className="font-bold text-sm text-gray-900 dark:text-slate-100">
-              Alertas: Clientes con Mora Crítica (+90 Días)
-            </h3>
-          </div>
-          <span className="text-xs font-bold text-red-600 bg-red-50 dark:bg-red-950 px-2.5 py-0.5 rounded-lg">
-            {metrics.clientesCriticosList.length} Críticos
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {metrics.clientesCriticosList.slice(0, 4).map((cliente) => (
-            <div 
-              key={cliente.ruc_dni}
-              className="p-3 bg-slate-50 dark:bg-slate-900/40 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3"
-            >
-              <div className="space-y-1 min-w-0">
-                <p className="font-bold text-xs text-gray-900 dark:text-slate-100 truncate">{cliente.cliente}</p>
-                <p className="text-[11px] text-gray-400">RUC: {cliente.ruc_dni} • {cliente.representante}</p>
-              </div>
-              <div className="text-right shrink-0">
-                <p className="font-extrabold text-red-600 text-xs md:text-sm">{fmtSoles(cliente.saldoTotal, 2, compactNumbers)}</p>
-                {renderMoraBadge(cliente.maxDiasMora)}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* SLIDE-OVER DRAWER (PANEL LATERAL DE COBRANZA) */}
+      {/* 6. DRAWER PARA DETALLE DE DOCUMENTO */}
       {activeDrawerDoc && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-xs transition-opacity animate-in fade-in duration-200">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 h-full p-6 shadow-2xl flex flex-col justify-between border-l border-gray-200 dark:border-slate-800 animate-in slide-in-from-right duration-300">
+        <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 h-full shadow-2xl p-6 overflow-y-auto space-y-6 flex flex-col justify-between border-l border-gray-100 dark:border-slate-800">
             <div className="space-y-6">
-              <div className="flex items-center justify-between border-b border-gray-100 dark:border-slate-800 pb-4">
+              
+              <div className="flex items-center justify-between pb-4 border-b border-gray-100 dark:border-slate-800">
                 <div>
-                  <h3 className="font-bold text-base text-gray-900 dark:text-slate-100">Gestión de Cobro</h3>
-                  <p className="text-xs text-gray-400">Comprobante #{activeDrawerDoc.documento}</p>
+                  <span className="text-[10px] font-extrabold text-blue-600 dark:text-blue-400 uppercase tracking-widest bg-blue-50 dark:bg-blue-950 px-2 py-0.5 rounded-full">
+                    Ficha de Documento
+                  </span>
+                  <h3 className="text-lg font-black text-slate-800 dark:text-slate-100 mt-1">{activeDrawerDoc.documento}</h3>
                 </div>
-                <button onClick={() => setActiveDrawerDoc(null)} className="p-1.5 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-400">
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl space-y-2 border border-slate-100 dark:border-slate-800">
-                <p className="text-xs text-gray-400 font-medium">Cliente</p>
-                <p className="font-bold text-sm text-gray-800 dark:text-slate-100">{activeDrawerDoc.cliente}</p>
-                
-                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
-                  <div>
-                    <p className="text-[10px] text-gray-400">Saldo Pendiente</p>
-                    <p className="font-extrabold text-sm text-red-600">{fmtSoles(activeDrawerDoc.saldo)}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-gray-400">Mora</p>
-                    <p className="font-bold text-xs text-amber-600">{activeDrawerDoc.dias_mora} días vencido</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-gray-700 dark:text-slate-200">Acción Rápida</label>
                 <button
-                  onClick={() => handleSendWhatsApp(activeDrawerDoc)}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-xs"
+                  onClick={() => setActiveDrawerDoc(null)}
+                  className="p-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600 transition"
                 >
-                  <MessageCircle className="h-4 w-4" /> Enviar Recordatorio por WhatsApp
+                  <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-gray-700 dark:text-slate-200">Promesa de Pago / Notas</label>
-                <textarea
-                  rows={4}
-                  value={drawerNote}
-                  onChange={(e) => setDrawerNote(e.target.value)}
-                  placeholder="Escribe un compromiso de pago o nota interna..."
-                  className="w-full p-3 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl text-xs outline-none focus:border-blue-500"
-                />
+              <div className="space-y-4">
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 space-y-2">
+                  <p className="text-xs text-slate-400 font-bold uppercase">Cliente</p>
+                  <p className="text-sm font-extrabold text-slate-800 dark:text-slate-200">{activeDrawerDoc.cliente}</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 space-y-1">
+                    <p className="text-[10px] text-slate-400 font-bold uppercase">Saldo Pendiente</p>
+                    <p className="text-base font-black text-blue-600 dark:text-blue-400">{fmtSoles(activeDrawerDoc.saldo)}</p>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 space-y-1">
+                    <p className="text-[10px] text-slate-400 font-bold uppercase">Días de Mora</p>
+                    <div className="pt-0.5">{renderMoraBadge(activeDrawerDoc.dias_mora)}</div>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 space-y-2 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Vendedor:</span>
+                    <span className="font-bold text-slate-700 dark:text-slate-300">{activeDrawerDoc.representante || 'No asignado'}</span>
+                  </div>
+                  {activeDrawerDoc.fecha_vencimiento && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Fecha Vencimiento:</span>
+                      <span className="font-bold text-slate-700 dark:text-slate-300">{activeDrawerDoc.fecha_vencimiento}</span>
+                    </div>
+                  )}
+                </div>
               </div>
+
             </div>
 
-            <div className="pt-4 border-t border-gray-100 dark:border-slate-800 flex gap-2">
+            <div className="space-y-2 pt-4 border-t border-gray-100 dark:border-slate-800">
               <button
                 onClick={() => {
-                  toast.success('Nota guardada correctamente');
+                  const docNum = activeDrawerDoc.documento;
                   setActiveDrawerDoc(null);
+                  handleDocumentClick(docNum);
                 }}
-                className="flex-1 py-2.5 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-700 transition"
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold text-xs shadow-lg shadow-blue-500/20 transition flex items-center justify-center gap-2"
               >
-                Guardar Gestión
+                <DollarSign className="w-4 h-4" /> Ir a Registrar Abono
+              </button>
+              
+              <button
+                onClick={() => {
+                  const msg = `Hola, le saludamos para coordinar sobre el documento *${activeDrawerDoc.documento}* con un saldo de *${fmtSoles(activeDrawerDoc.saldo)}*.`;
+                  window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+                }}
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-bold text-xs shadow-lg shadow-emerald-500/20 transition flex items-center justify-center gap-2"
+              >
+                <MessageCircle className="w-4 h-4" /> Contactar por WhatsApp
               </button>
             </div>
+
           </div>
         </div>
       )}

@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { toast } from 'react-hot-toast'
 import { getDocumentos } from '../lib/supabaseService'
 import { parseCobranzaExcelFile } from '../lib/excelService'
 import { 
   Search, Calendar, CheckCircle2, 
-  Trash2, X, Download, Printer, MapPin, User, FileText 
+  Trash2, X, Download, Printer, MapPin, User, FileText, FileSpreadsheet, RefreshCw, ChevronDown
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
@@ -22,10 +22,30 @@ interface PagoProgramado {
   estado: 'Pendiente' | 'Completado'
 }
 
+interface DocumentoExcel {
+  id: string
+  nombre: string
+  ruta_archivo: string
+  url_archivo: string
+  fecha_carga?: string
+  created_at?: string
+  fecha?: string
+}
+
 export default function PagosPage() {
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const [loading, setLoading] = useState(true)
+
+  // ESTADO DE DOCUMENTOS EXCEL DISPONIBLES Y SELECCIONADO
+  const [excelDocs, setExcelDocs] = useState<DocumentoExcel[]>([])
+  const [selectedDocId, setSelectedDocId] = useState<string>(() => {
+    return localStorage.getItem('cobranza_documento_activo_id') || ''
+  })
+  
+  // Estado y Ref para desplegable personalizado
+  const [isDocDropdownOpen, setIsDocDropdownOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
   // 1. ESTADOS DE SELECCIÓN Y FILTROS
   const [selectedZona, setSelectedZona] = useState<string>('')
@@ -45,30 +65,85 @@ export default function PagosPage() {
   const [inputsFecha, setInputsFecha] = useState<{ [key: string]: string }>({})
   const [inputsMetodo, setInputsMetodo] = useState<{ [key: string]: string }>({})
 
-  // Cargar datos
-  const loadExcelData = async () => {
-    setLoading(true)
+  // Helper para formatear fecha y hora exactamente como en la imagen
+  const formatFechaHora = (fechaRaw?: string) => {
+    if (!fechaRaw) return ''
+    try {
+      const date = new Date(fechaRaw)
+      if (isNaN(date.getTime())) return ''
+      return date.toLocaleString('es-PE', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      })
+    } catch {
+      return ''
+    }
+  }
+
+  // Cerrar menú al hacer clic fuera
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDocDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Carga inicial de la lista de documentos registrados en base de datos
+  const fetchDocumentosList = async () => {
     try {
       const { data, error } = await getDocumentos()
       if (error) throw new Error(typeof error === 'string' ? error : (error as any)?.message || 'Error al obtener documentos')
 
       const documentos = (data || []) as any[]
-      const excelDocs = documentos.filter((doc) => 
+      const excels = documentos.filter((doc) => 
         doc.ruta_archivo && (doc.ruta_archivo.endsWith('.xls') || doc.ruta_archivo.endsWith('.xlsx'))
       )
 
-      if (excelDocs.length === 0) {
-        setLoading(false)
-        return
-      }
+      setExcelDocs(excels)
 
-      const ultimoExcel = excelDocs[0]
-      const response = await fetch(ultimoExcel.url_archivo)
+      if (excels.length > 0) {
+        const currentSaved = localStorage.getItem('cobranza_documento_activo_id')
+        const existeGuardado = excels.some(d => String(d.id) === String(currentSaved))
+
+        if (!currentSaved || !existeGuardado) {
+          const docIdInicial = String(excels[0].id)
+          setSelectedDocId(docIdInicial)
+          localStorage.setItem('cobranza_documento_activo_id', docIdInicial)
+        }
+      } else {
+        setLoading(false)
+      }
+    } catch (err: any) {
+      toast.error('Error al obtener lista de documentos: ' + err.message)
+      setLoading(false)
+    }
+  }
+
+  // Carga y procesa los datos del archivo Excel actualmente SELECCIONADO
+  const processExcelData = async (docIdToLoad: string) => {
+    if (!docIdToLoad || excelDocs.length === 0) return
+
+    const targetDoc = excelDocs.find(d => String(d.id) === String(docIdToLoad))
+    if (!targetDoc) return
+
+    setLoading(true)
+    try {
+      const response = await fetch(targetDoc.url_archivo)
       const blob = await response.blob()
-      const file = new File([blob], ultimoExcel.nombre, { type: blob.type })
+      const file = new File([blob], targetDoc.nombre, { type: blob.type })
 
       const parsedRows = await parseCobranzaExcelFile(file)
       setAllRows(parsedRows)
+
+      setSelectedZona('')
+      setSelectedCliente('')
 
       const mañana = new Date()
       mañana.setDate(mañana.getDate() + 1)
@@ -100,14 +175,33 @@ export default function PagosPage() {
       const localSaved = localStorage.getItem('cobranza_pagos_programados')
       if (localSaved) setPagosProgramados(JSON.parse(localSaved))
 
+      toast.success(`Datos cargados desde: ${targetDoc.nombre}`)
     } catch (err: any) {
-      toast.error('Error al cargar datos: ' + err.message)
+      toast.error('Error al procesar el archivo Excel: ' + err.message)
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => { loadExcelData() }, [])
+  useEffect(() => {
+    fetchDocumentosList()
+  }, [])
+
+  useEffect(() => {
+    if (selectedDocId && excelDocs.length > 0) {
+      processExcelData(selectedDocId)
+    }
+  }, [selectedDocId, excelDocs])
+
+  const handleDocumentChange = (docId: string) => {
+    setSelectedDocId(docId)
+    localStorage.setItem('cobranza_documento_activo_id', docId)
+    setIsDocDropdownOpen(false)
+  }
+
+  const selectedDocObj = useMemo(() => {
+    return excelDocs.find(d => String(d.id) === String(selectedDocId)) || excelDocs[0]
+  }, [excelDocs, selectedDocId])
 
   // Vendedores Únicos
   const vendedoresUnicos = useMemo(() => {
@@ -129,7 +223,7 @@ export default function PagosPage() {
     return true
   }
 
-  // 2. AGRUPACIÓN NIVEL 1: ZONAS FILTRADAS
+  // AGRUPACIÓN ZONAS
   const resumenZonas = useMemo(() => {
     const mapZonas = new Map<string, { zona: string; saldoTotal: number; saldoVencido: number; count: number }>()
 
@@ -162,7 +256,7 @@ export default function PagosPage() {
     return result
   }, [allRows, repFilter, tramoFilter])
 
-  // 3. AGRUPACIÓN NIVEL 2: CLIENTES FILTRADOS POR ZONA
+  // AGRUPACIÓN CLIENTES
   const resumenClientes = useMemo(() => {
     if (!selectedZona) return []
     const mapClientes = new Map<string, { cliente: string; saldoTotal: number; saldoVencido: number; count: number }>()
@@ -199,7 +293,7 @@ export default function PagosPage() {
     return result
   }, [allRows, selectedZona, repFilter, tramoFilter])
 
-  // 4. AGRUPACIÓN NIVEL 3: DOCUMENTOS DETALLADOS
+  // AGRUPACIÓN DOCUMENTOS
   const documentosFiltrados = useMemo(() => {
     return allRows.filter((row) => {
       const rep = row.representante || row.vendedor || ''
@@ -221,7 +315,6 @@ export default function PagosPage() {
     })
   }, [allRows, selectedZona, selectedCliente, repFilter, tramoFilter, searchTerm])
 
-  // CÁLCULO DE TOTAL DE SALDOS MOSTRADOS
   const totalSaldoDocumentos = useMemo(() => {
     return documentosFiltrados.reduce((acc, row) => acc + Number(row.saldo || 0), 0)
   }, [documentosFiltrados])
@@ -331,6 +424,74 @@ export default function PagosPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          
+          {/* COMPONENTE SELECTOR PERSONALIZADO (FORMATO EXACTO A LA IMAGEN) */}
+          <div className="relative" ref={dropdownRef}>
+            <button
+              type="button"
+              onClick={() => setIsDocDropdownOpen(!isDocDropdownOpen)}
+              className="flex items-center gap-2 px-3 py-1.5 bg-blue-50/50 hover:bg-blue-50 border border-blue-100 rounded-2xl shadow-sm transition text-left"
+            >
+              <div className="p-1.5 bg-emerald-100/80 rounded-xl text-emerald-700">
+                <FileSpreadsheet className="h-4 w-4" />
+              </div>
+              <div className="flex flex-col min-w-[170px] max-w-[240px]">
+                <div className="flex items-center justify-between gap-1">
+                  <span className="font-bold text-gray-900 truncate text-[12px]">
+                    {selectedDocObj?.nombre || 'Cargando...'}
+                  </span>
+                  <ChevronDown className={`h-3.5 w-3.5 text-gray-500 transition-transform ${isDocDropdownOpen ? 'rotate-180' : ''}`} />
+                </div>
+                {selectedDocObj && (
+                  <div className="flex items-center gap-1 text-[11px]">
+                    <Calendar className="h-3 w-3 text-blue-500 shrink-0" />
+                    <span className="text-gray-500 font-medium">Actualizado hasta:</span>
+                    <span className="font-bold text-blue-600">
+                      {formatFechaHora(selectedDocObj.fecha_carga || selectedDocObj.created_at || selectedDocObj.fecha)}
+                    </span>
+                  </div>
+                )}
+              </div>
+              {loading && <RefreshCw className="h-3.5 w-3.5 text-blue-600 animate-spin ml-1" />}
+            </button>
+
+            {/* MENÚ DESPLEGABLE CON FORMATO IDÉNTICO */}
+            {isDocDropdownOpen && (
+              <div className="absolute left-0 mt-1 w-80 bg-white border border-gray-100 rounded-2xl shadow-xl z-50 overflow-hidden divide-y divide-gray-50 max-h-72 overflow-y-auto">
+                {excelDocs.map((doc) => {
+                  const isSelected = String(doc.id) === String(selectedDocId)
+                  const fechaFmt = formatFechaHora(doc.fecha_carga || doc.created_at || doc.fecha)
+                  return (
+                    <button
+                      key={doc.id}
+                      type="button"
+                      onClick={() => handleDocumentChange(String(doc.id))}
+                      className={`w-full p-2.5 text-left flex items-start gap-2.5 transition ${
+                        isSelected ? 'bg-blue-50/80' : 'hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className={`p-1.5 rounded-xl mt-0.5 ${isSelected ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-600'}`}>
+                        <FileSpreadsheet className="h-4 w-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className={`font-bold truncate text-[12px] ${isSelected ? 'text-blue-900' : 'text-gray-800'}`}>
+                          {doc.nombre}
+                        </p>
+                        {fechaFmt && (
+                          <div className="flex items-center gap-1 text-[11px] mt-0.5">
+                            <Calendar className="h-3 w-3 text-blue-500 shrink-0" />
+                            <span className="text-gray-500 font-medium">Actualizado hasta:</span>
+                            <span className="font-bold text-blue-600">{fechaFmt}</span>
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
           {/* Filtro Vendedor */}
           <select
             value={repFilter}
@@ -434,7 +595,7 @@ export default function PagosPage() {
       {/* DASHBOARD JERÁRQUICO MAESTRO-DETALLE */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 print:hidden">
         
-        {/* NIVEL 1: PANEL IZQUIERDO DE ZONAS */}
+        {/* PANEL IZQUIERDO DE ZONAS */}
         <div className="lg:col-span-3 bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden flex flex-col h-[520px]">
           <div className="bg-gray-100 p-2.5 border-b border-gray-200 font-bold text-gray-700 flex justify-between items-center">
             <span>Zona</span>
@@ -485,10 +646,10 @@ export default function PagosPage() {
           </div>
         </div>
 
-        {/* NIVEL 2 Y 3: PANEL DERECHO */}
+        {/* PANEL DERECHO */}
         <div className="lg:col-span-9 space-y-4 flex flex-col h-[520px]">
           
-          {/* PANEL SUPERIOR DERECHO: CLIENTES */}
+          {/* CLIENTES */}
           <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden h-[210px] flex flex-col">
             <div className="bg-blue-50/80 px-3 py-2 border-b border-blue-100 font-bold text-blue-900 flex justify-between items-center">
               <span className="flex items-center gap-1.5">
@@ -505,7 +666,6 @@ export default function PagosPage() {
                     <th className="p-2">Denominación / Cliente</th>
                     <th className="p-2 text-center">Docs</th>
                     <th className="p-2 text-right">Vencido</th>
-                    {/* 👇 COLUMNA AÑADIDA 👇 */}
                     <th className="p-2 text-right text-emerald-700">Por Vencer</th>
                     <th className="p-2 text-right">Saldo Total</th>
                   </tr>
@@ -531,7 +691,6 @@ export default function PagosPage() {
                         <td className="p-2 text-right font-medium text-red-600">
                           {c.saldoVencido > 0 ? `S/. ${c.saldoVencido.toLocaleString('es-PE', { minimumFractionDigits: 2 })}` : '-'}
                         </td>
-                        {/* 👇 CELDA POR VENCER AÑADIDA 👇 */}
                         <td className="p-2 text-right font-medium text-emerald-600">
                           {porVencer > 0 ? `S/. ${porVencer.toLocaleString('es-PE', { minimumFractionDigits: 2 })}` : '-'}
                         </td>
@@ -551,7 +710,7 @@ export default function PagosPage() {
             </div>
           </div>
 
-          {/* PANEL INFERIOR DERECHO: DOCUMENTOS Y ABONOS */}
+          {/* DOCUMENTOS */}
           <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden flex-1 flex flex-col">
             <div className="bg-gray-800 text-white px-3 py-1.5 font-bold flex justify-between items-center text-[11px]">
               <span className="flex items-center gap-1">
@@ -641,7 +800,6 @@ export default function PagosPage() {
                   )}
                 </tbody>
 
-                {/* FILA DE TOTAL EN LA PARTE INFERIOR */}
                 <tfoot className="bg-gray-100 border-t-2 border-gray-200 font-bold sticky bottom-0 z-10">
                   <tr>
                     <td colSpan={2} className="p-2 text-right text-gray-700 font-extrabold uppercase text-[11px]">
@@ -661,7 +819,7 @@ export default function PagosPage() {
         </div>
       </div>
 
-      {/* CRONOGRAMA DE COMPROMISOS */}
+      {/* CRONOGRAMA */}
       <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
         <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2 text-xs">
           <Calendar className="h-4 w-4 text-blue-500" /> Cronograma de Compromisos Agendados
@@ -721,7 +879,7 @@ export default function PagosPage() {
             </tbody>
           </table>
         </div>
-      </div>
+      </div>  
     </div>
   )
 }
