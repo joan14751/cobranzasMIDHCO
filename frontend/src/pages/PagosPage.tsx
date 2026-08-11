@@ -65,7 +65,7 @@ export default function PagosPage() {
   const [inputsFecha, setInputsFecha] = useState<{ [key: string]: string }>({})
   const [inputsMetodo, setInputsMetodo] = useState<{ [key: string]: string }>({})
 
-  // Helper para formatear fecha y hora exactamente como en la imagen
+  // Helper para formatear fecha y hora
   const formatFechaHora = (fechaRaw?: string) => {
     if (!fechaRaw) return ''
     try {
@@ -425,7 +425,7 @@ export default function PagosPage() {
 
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           
-          {/* COMPONENTE SELECTOR PERSONALIZADO (FORMATO EXACTO A LA IMAGEN) */}
+          {/* COMPONENTE SELECTOR PERSONALIZADO */}
           <div className="relative" ref={dropdownRef}>
             <button
               type="button"
@@ -455,7 +455,7 @@ export default function PagosPage() {
               {loading && <RefreshCw className="h-3.5 w-3.5 text-blue-600 animate-spin ml-1" />}
             </button>
 
-            {/* MENÚ DESPLEGABLE CON FORMATO IDÉNTICO */}
+            {/* MENÚ DESPLEGABLE */}
             {isDocDropdownOpen && (
               <div className="absolute left-0 mt-1 w-80 bg-white border border-gray-100 rounded-2xl shadow-xl z-50 overflow-hidden divide-y divide-gray-50 max-h-72 overflow-y-auto">
                 {excelDocs.map((doc) => {
@@ -519,12 +519,6 @@ export default function PagosPage() {
             )}
           </div>
 
-          <button onClick={exportToExcel} className="flex items-center gap-1 px-3 py-1.5 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 shadow-sm">
-            <Download className="h-3.5 w-3.5" /> Excel
-          </button>
-          <button onClick={() => window.print()} className="flex items-center gap-1 px-3 py-1.5 bg-gray-800 text-white rounded-xl font-bold hover:bg-gray-900 shadow-sm">
-            <Printer className="h-3.5 w-3.5" /> PDF
-          </button>
         </div>
       </div>
 
@@ -821,9 +815,30 @@ export default function PagosPage() {
 
       {/* CRONOGRAMA */}
       <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
-        <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2 text-xs">
-          <Calendar className="h-4 w-4 text-blue-500" /> Cronograma de Compromisos Agendados
-        </h3>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-3">
+            <h3 className="font-bold text-gray-800 flex items-center gap-2 text-xs">
+              <Calendar className="h-4 w-4 text-blue-500" /> Cronograma de Compromisos Agendados
+            </h3>
+            
+            {/* BOTONES EXCEL Y PDF AHORA UBICADOS AL LADO DEL TÍTULO */}
+            <div className="flex items-center gap-2 print:hidden">
+              <button 
+                onClick={exportToExcel} 
+                className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full font-bold shadow-sm transition text-[11px]"
+              >
+                <Download className="h-3.5 w-3.5" /> Excel
+              </button>
+              <button 
+                onClick={() => window.print()} 
+                className="flex items-center gap-1.5 px-3 py-1 bg-slate-800 hover:bg-slate-900 text-white rounded-full font-bold shadow-sm transition text-[11px]"
+              >
+                <Printer className="h-3.5 w-3.5" /> PDF
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div className="overflow-x-auto text-xs">
           <table className="w-full text-left border-collapse">
             <thead className="bg-gray-50 font-semibold text-gray-600 border-b border-gray-100">

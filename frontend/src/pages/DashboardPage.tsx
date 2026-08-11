@@ -33,7 +33,8 @@ import {
   ArrowRight,
   Calendar,
   Award,
-  TrendingUp
+  TrendingUp,
+  MapPin
 } from 'lucide-react'; 
 import { 
   ResponsiveContainer, 
@@ -65,6 +66,7 @@ interface ClienteCritico {
   saldoTotal: number;
   maxDiasMora: number;
   representante: string;
+  zona?: string;
 }
 
 interface DocumentoDetalle {
@@ -73,6 +75,7 @@ interface DocumentoDetalle {
   saldo: number;
   dias_mora: number;
   representante: string;
+  zona?: string;
   fecha_vencimiento?: string;
   telefono?: string;
 }
@@ -415,7 +418,8 @@ export default function DashboardPage() {
               cliente: row.cliente || 'Cliente sin nombre',
               saldoTotal: 0,
               maxDiasMora: diasMora,
-              representante: repNombre
+              representante: repNombre,
+              zona: row.zona || row.region || row.sucursal || 'General'
             };
           }
           clientesCriticosMap[clienteKey].saldoTotal += saldoItem;
@@ -455,7 +459,6 @@ export default function DashboardPage() {
     };
   }, [filteredRows, prevMontoEnMoraTotal]);
 
-  // LISTADO COMPLETO Y ORDENADO DE VENDEDORES DE MAYOR A MENOR MOROSIDAD
   const rankingVendedores = useMemo(() => {
     return Object.keys(metrics.repSaldosMap)
       .map((rep) => {
@@ -486,7 +489,8 @@ export default function DashboardPage() {
       const term = searchTableTerm.toLowerCase().trim();
       const cliente = (doc.cliente || '').toLowerCase();
       const numDoc = (doc.documento || doc.num_doc || '').toLowerCase();
-      return cliente.includes(term) || numDoc.includes(term);
+      const zona = (doc.zona || doc.region || doc.sucursal || '').toLowerCase();
+      return cliente.includes(term) || numDoc.includes(term) || zona.includes(term);
     });
   }, [filteredRows, searchTableTerm, selectedPill]);
 
@@ -547,12 +551,13 @@ export default function DashboardPage() {
     if (selectedDocsList.length === 0) return;
     const itemsToExport = filteredDocsInMora.filter((d: any) => selectedDocsList.includes(d.documento || d.num_doc));
     
-    const headers = ["Cliente", "Documento", "Saldo (S/.)", "Dias Mora", "Representante"];
+    const headers = ["Cliente", "Documento", "Saldo (S/.)", "Dias Mora", "Zona", "Representante"];
     const rows = itemsToExport.map((d: any) => [
       `"${d.cliente || ''}"`,
       `"${d.documento || d.num_doc || ''}"`,
       d.saldo || 0,
       d.dias_mora || 0,
+      `"${d.zona || d.region || d.sucursal || 'Sin Zona'}"`,
       `"${d.representante || d.vendedor || ''}"`
     ]);
 
@@ -885,7 +890,7 @@ export default function DashboardPage() {
                   <div className="truncate pr-2">
                     <p className="font-extrabold text-slate-800 dark:text-slate-200 truncate">{critico.cliente}</p>
                     <p className="text-[10px] text-slate-400 dark:text-slate-500">
-                      Rep: {critico.representante}
+                      Rep: {critico.representante} {critico.zona ? `• ${critico.zona}` : ''}
                     </p>
                   </div>
                   <div className="text-right whitespace-nowrap">
@@ -911,7 +916,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* 5. NUEVO: RANKING COMPLETO DE MOROSIDAD POR VENDEDOR (MAYOR A MENOR) */}
+      {/* 5. RANKING COMPLETO DE MOROSIDAD POR VENDEDOR */}
       <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800 shadow-sm space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-100 dark:border-slate-800">
           <div>
@@ -1016,7 +1021,7 @@ export default function DashboardPage() {
             <div className="relative w-full md:w-64">
               <input
                 type="text"
-                placeholder="Buscar por cliente o doc..."
+                placeholder="Buscar por cliente, doc o zona..."
                 value={searchTableTerm}
                 onChange={(e) => setSearchTableTerm(e.target.value)}
                 className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-gray-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-xs text-slate-700 dark:text-slate-300 font-medium outline-none focus:ring-2 focus:ring-blue-500"
@@ -1048,6 +1053,7 @@ export default function DashboardPage() {
                 <th className="p-3">Documento</th>
                 <th className="p-3 text-right">Saldo</th>
                 <th className="p-3 text-center">Estado Mora</th>
+                <th className="p-3">Zona</th>
                 <th className="p-3">Vendedor</th>
                 <th className="p-3 text-center">Acciones</th>
               </tr>
@@ -1057,6 +1063,7 @@ export default function DashboardPage() {
                 const numDoc = doc.documento || doc.num_doc || 'S/N';
                 const dias = Number(doc.dias_mora || 0);
                 const isSelected = selectedDocsList.includes(numDoc);
+                const zonaTexto = doc.zona || doc.region || doc.sucursal || 'Sin Zona';
 
                 return (
                   <tr key={index} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition group">
@@ -1083,6 +1090,12 @@ export default function DashboardPage() {
                     <td className="p-3 text-center">
                       {renderMoraBadge(dias)}
                     </td>
+                    <td className="p-3">
+                      <span className="inline-flex items-center gap-1 font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg text-[11px]">
+                        <MapPin className="w-3 h-3 text-indigo-500" />
+                        {zonaTexto}
+                      </span>
+                    </td>
                     <td className="p-3 text-slate-600 dark:text-slate-400 font-medium">
                       {doc.representante || doc.vendedor || 'No Asignado'}
                     </td>
@@ -1102,6 +1115,7 @@ export default function DashboardPage() {
                             saldo: doc.saldo,
                             dias_mora: dias,
                             representante: doc.representante || doc.vendedor,
+                            zona: zonaTexto,
                             fecha_vencimiento: doc.fecha_venc,
                             telefono: doc.telefono
                           })}
@@ -1117,7 +1131,7 @@ export default function DashboardPage() {
               })}
               {paginatedDocsInMora.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-slate-400 font-medium">
+                  <td colSpan={8} className="p-8 text-center text-slate-400 font-medium">
                     No se encontraron documentos con los filtros aplicados.
                   </td>
                 </tr>
@@ -1189,6 +1203,10 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 space-y-2 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Zona / Región:</span>
+                    <span className="font-bold text-slate-700 dark:text-slate-300">{activeDrawerDoc.zona || 'Sin zona'}</span>
+                  </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Vendedor:</span>
                     <span className="font-bold text-slate-700 dark:text-slate-300">{activeDrawerDoc.representante || 'No asignado'}</span>
