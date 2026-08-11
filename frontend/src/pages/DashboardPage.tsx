@@ -31,7 +31,9 @@ import {
   FileSearch,
   Bell,
   ArrowRight,
-  Calendar
+  Calendar,
+  Award,
+  TrendingUp
 } from 'lucide-react'; 
 import { 
   ResponsiveContainer, 
@@ -78,7 +80,6 @@ interface DocumentoDetalle {
 type ChartType = 'pie' | 'tramos' | 'representantes';
 type RangoMoraPill = 'todos' | 'al_dia' | '1_15' | '16_45' | '46_mas';
 
-// HELPER PARA FORMATO DE FECHA Y HORA COMPLETA (DD/MM/YYYY, hh:mm a. m.)
 const formatFechaHora = (fechaRaw?: string) => {
   if (!fechaRaw) return 'Fecha no disponible';
   try {
@@ -97,7 +98,6 @@ const formatFechaHora = (fechaRaw?: string) => {
   }
 };
 
-// HELPER PARA FORMATO ÚNICAMENTE DE HORA (hh:mm a. m.)
 const formatHoraCorta = (fechaRaw?: string) => {
   if (!fechaRaw) return '';
   try {
@@ -113,7 +113,6 @@ const formatHoraCorta = (fechaRaw?: string) => {
   }
 };
 
-// HELPER REUTILIZABLE PARA MONEDA EN SOLES
 const fmtSoles = (monto: number, decimales: number = 2, compact: boolean = false) => {
   const val = Number(monto || 0);
   if (compact) {
@@ -126,7 +125,6 @@ const fmtSoles = (monto: number, decimales: number = 2, compact: boolean = false
   })}`;
 };
 
-// BADGE DE SEVERIDAD DE MORA
 const renderMoraBadge = (dias: number) => {
   if (dias <= 0) {
     return (
@@ -156,7 +154,6 @@ const renderMoraBadge = (dias: number) => {
   );
 };
 
-// SKELETON COMPONENT
 const DashboardSkeleton = () => (
   <div className="space-y-6 p-4 md:p-6 max-w-7xl mx-auto animate-pulse">
     <div className="h-20 bg-gray-200 dark:bg-slate-800 rounded-3xl w-full" />
@@ -169,7 +166,6 @@ const DashboardSkeleton = () => (
   </div>
 );
 
-// TOOLTIP DE RECHARTS CON SOPORTE PARA PORCENTAJE DE MORAS DE VENDEDORES
 const CustomRechartsTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
@@ -206,28 +202,24 @@ export default function DashboardPage() {
   const [lastSyncTime, setLastSyncTime] = useState<string>('');
   const [compactNumbers, setCompactNumbers] = useState(false);
   
-  // FILTROS
   const [searchTerm, setSearchTerm] = useState('');
   const [searchTableTerm, setSearchTableTerm] = useState('');
+  const [searchVendorTerm, setSearchVendorTerm] = useState('');
   const [selectedPill, setSelectedPill] = useState<RangoMoraPill>('todos');
 
-  // DATOS
   const [allRows, setAllRows] = useState<any[]>([]);
   const [previousRows, setPreviousRows] = useState<any[]>([]);
   const [excelDocs, setExcelDocs] = useState<DocumentoExtendido[]>([]);
   const [selectedDocId, setSelectedDocId] = useState<string>('');
   const [chartType, setChartType] = useState<ChartType>('pie');
 
-  // SELECCIÓN Y DRAWER
   const [selectedDocsList, setSelectedDocsList] = useState<string[]>([]);
   const [activeDrawerDoc, setActiveDrawerDoc] = useState<DocumentoDetalle | null>(null);
 
-  // ALERTA Y PAGINACIÓN
   const [criticalToast, setCriticalToast] = useState<{ count: number; monto: number } | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 8;
 
-  // DOCUMENTO ACTUALMENTE SELECCIONADO Y SUS METADATOS DE FECHA Y HORA DE CARGA
   const activeDocument = useMemo(() => {
     return excelDocs.find(doc => doc.id === selectedDocId) || excelDocs[0] || null;
   }, [excelDocs, selectedDocId]);
@@ -463,6 +455,28 @@ export default function DashboardPage() {
     };
   }, [filteredRows, prevMontoEnMoraTotal]);
 
+  // LISTADO COMPLETO Y ORDENADO DE VENDEDORES DE MAYOR A MENOR MOROSIDAD
+  const rankingVendedores = useMemo(() => {
+    return Object.keys(metrics.repSaldosMap)
+      .map((rep) => {
+        const total = metrics.repSaldosMap[rep] || 0;
+        const mora = metrics.repMoraMap[rep] || 0;
+        const pctMora = total > 0 ? (mora / total) * 100 : 0;
+
+        return {
+          vendedor: rep,
+          saldoTotal: total,
+          saldoMora: mora,
+          porcentajeMora: Number(pctMora.toFixed(1))
+        };
+      })
+      .filter((v) => {
+        if (!searchVendorTerm.trim()) return true;
+        return v.vendedor.toLowerCase().includes(searchVendorTerm.toLowerCase().trim());
+      })
+      .sort((a, b) => b.porcentajeMora - a.porcentajeMora || b.saldoMora - a.saldoMora);
+  }, [metrics.repSaldosMap, metrics.repMoraMap, searchVendorTerm]);
+
   const filteredDocsInMora = useMemo(() => {
     return filteredRows.filter((doc: any) => {
       const dias = Number(doc.dias_mora || 0);
@@ -496,22 +510,13 @@ export default function DashboardPage() {
     { tramo: '46+ días', cantidad: metrics.conteo46Mas, color: '#EF4444' }
   ];
 
-  const representantesData = Object.keys(metrics.repSaldosMap)
-    .map((rep) => {
-      const total = metrics.repSaldosMap[rep] || 0;
-      const mora = metrics.repMoraMap[rep] || 0;
-      const pctMora = total > 0 ? (mora / total) * 100 : 0;
-
-      return {
-        nombreCompleto: rep,
-        nombre: rep.length > 12 ? rep.substring(0, 12) + '...' : rep,
-        saldo: total,
-        mora: mora,
-        porcentajeMora: Number(pctMora.toFixed(1))
-      };
-    })
-    .sort((a, b) => b.porcentajeMora - a.porcentajeMora)
-    .slice(0, 5);
+  const representantesData = rankingVendedores.slice(0, 5).map(r => ({
+    nombreCompleto: r.vendedor,
+    nombre: r.vendedor.length > 12 ? r.vendedor.substring(0, 12) + '...' : r.vendedor,
+    saldo: r.saldoTotal,
+    mora: r.saldoMora,
+    porcentajeMora: r.porcentajeMora
+  }));
 
   const handleDocumentClick = (numDoc: string) => {
     if (!numDoc) return;
@@ -567,10 +572,8 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-slate-50/50 dark:bg-slate-950 p-4 md:p-6 lg:p-8 font-sans space-y-6 transition-colors duration-200">
       
-      {/* 1. TOP BAR DE BIENVENIDA CON LA MUESTRA EXPLICITA DE FECHA Y HORA DE SUBIDA */}
+      {/* 1. TOP BAR DE BIENVENIDA */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-5 rounded-3xl border border-gray-100 dark:border-slate-800 shadow-sm">
-        
-        {/* SALUDO E INDICADOR DE SYNC CON LA HORA DEL DOCUMENTO */}
         <div>
           <h1 className="text-xl md:text-2xl font-black text-slate-800 dark:text-slate-100 tracking-tight flex items-center gap-2">
             Hola, {userName} 👋
@@ -587,13 +590,9 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* CONTROLES DE ARCHIVOS Y FECHA Y HORA DE SUBIDA VISIBLE EN PARTE SUPERIOR */}
         <div className="flex flex-wrap items-center gap-2.5">
-          
-          {/* DESPLEGABLE CON INFORMACIÓN EXPANDIDA DE FECHA/HORA AL LADO DEL NOMBRE */}
           <div className="relative flex items-center bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-gray-200 dark:border-slate-800 p-1.5 pr-3 shadow-inner">
             <FileSpreadsheet className="h-4 w-4 text-emerald-600 ml-2 mr-1 flex-shrink-0" />
-            
             <div className="flex flex-col text-left">
               <select
                 value={selectedDocId}
@@ -606,8 +605,6 @@ export default function DashboardPage() {
                   </option>
                 ))}
               </select>
-
-              {/* MOSTRAR EXPLÍCITAMENTE FECHA Y HORA DE SUBIDA DEBAJO/AL LADO */}
               <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1">
                 <Calendar className="w-3 h-3 text-blue-500" />
                 Actualizado hasta: <strong className="text-blue-600 dark:text-blue-400">{activeDocFechaHoraFormatted}</strong>
@@ -615,7 +612,6 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* MODO NÚMEROS COMPACTOS */}
           <button
             onClick={() => setCompactNumbers(!compactNumbers)}
             className={`px-3 py-2 rounded-2xl border transition flex items-center gap-1.5 text-xs font-bold ${
@@ -623,27 +619,23 @@ export default function DashboardPage() {
                 ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-200 text-blue-600 dark:text-blue-400' 
                 : 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
             }`}
-            title="Conmutar vista de montos compactos (K/M)"
           >
             {compactNumbers ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             <span className="hidden sm:inline">{compactNumbers ? 'S/. Compacto' : 'S/. Completo'}</span>
           </button>
 
-          {/* BOTÓN REFRESCAR */}
           <button
             onClick={loadDashboardData}
             className="p-2.5 rounded-2xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
-            title="Recargar datos"
           >
             <RefreshCw className="w-4 h-4" />
           </button>
         </div>
       </div>
 
-      {/* 2. BARRA DE FILTROS RÁPIDOS Y BÚSQUEDA */}
+      {/* 2. FILTROS RÁPIDOS */}
       <div className="bg-white dark:bg-slate-900 p-4 rounded-3xl border border-gray-100 dark:border-slate-800 shadow-sm space-y-3">
         <div className="flex flex-col md:flex-row items-center justify-between gap-3">
-          
           <div className="flex flex-wrap items-center gap-1.5 w-full md:w-auto">
             <span className="text-xs font-bold text-slate-400 dark:text-slate-500 mr-1 flex items-center gap-1">
               <Filter className="w-3.5 h-3.5" /> Tramo:
@@ -696,7 +688,6 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ALERTA INTELIGENTE DE RIESGO DE CARTERA */}
       {criticalToast && (
         <div className="bg-gradient-to-r from-red-500 to-rose-600 text-white p-4 rounded-3xl shadow-lg flex items-center justify-between gap-3 animate-fade-in">
           <div className="flex items-center gap-3">
@@ -721,7 +712,6 @@ export default function DashboardPage() {
 
       {/* 3. GRID DE TARJETAS METRICAS (KPIs) */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        
         <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-gray-100 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-3 hover:border-blue-200 transition">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Clientes Activos</span>
@@ -793,12 +783,10 @@ export default function DashboardPage() {
             </p>
           </div>
         </div>
-
       </div>
 
       {/* 4. SECCIÓN GRÁFICOS INTERACTIVOS */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
         <div className="lg:col-span-8 bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800 shadow-sm space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-100 dark:border-slate-800">
             <div>
@@ -831,7 +819,7 @@ export default function DashboardPage() {
                   chartType === 'representantes' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500'
                 }`}
               >
-                <UserIcon className="w-3.5 h-3.5" /> Vendedores (% Mora)
+                <UserIcon className="w-3.5 h-3.5" /> Top 5 Vendedores
               </button>
             </div>
           </div>
@@ -921,12 +909,99 @@ export default function DashboardPage() {
             Ver Directorio Completo 360° <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
-
       </div>
 
-      {/* 5. TABLA DE DOCUMENTOS EN MORA Y ACCIONES MASIVAS */}
+      {/* 5. NUEVO: RANKING COMPLETO DE MOROSIDAD POR VENDEDOR (MAYOR A MENOR) */}
       <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800 shadow-sm space-y-4">
-        
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-100 dark:border-slate-800">
+          <div>
+            <h3 className="font-extrabold text-slate-800 dark:text-slate-100 text-sm flex items-center gap-2">
+              <Award className="w-4 h-4 text-amber-500" /> Ranking de Morosidad por Vendedor
+            </h3>
+            <p className="text-xs text-slate-400 dark:text-slate-500">
+              Listado completo ordenado de <strong>mayor a menor porcentaje de morosidad</strong>
+            </p>
+          </div>
+
+          <div className="relative w-full sm:w-64">
+            <input
+              type="text"
+              placeholder="Buscar vendedor..."
+              value={searchVendorTerm}
+              onChange={(e) => setSearchVendorTerm(e.target.value)}
+              className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-gray-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-xs text-slate-700 dark:text-slate-300 font-medium outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-gray-100 dark:border-slate-800 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">
+                <th className="p-3 w-12 text-center">#</th>
+                <th className="p-3">Vendedor / Representante</th>
+                <th className="p-3 text-right">Saldo Total</th>
+                <th className="p-3 text-right">Monto en Mora</th>
+                <th className="p-3 text-center">% Morosidad</th>
+                <th className="p-3 w-48">Nivel de Riesgo</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50 dark:divide-slate-800/60">
+              {rankingVendedores.map((v, index) => {
+                const isTop1 = index === 0 && v.porcentajeMora > 0;
+                return (
+                  <tr key={index} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
+                    <td className="p-3 text-center font-black text-slate-400">
+                      {isTop1 ? '🚨' : `#${index + 1}`}
+                    </td>
+                    <td className="p-3">
+                      <p className="font-extrabold text-slate-800 dark:text-slate-200">{v.vendedor}</p>
+                    </td>
+                    <td className="p-3 text-right font-medium text-slate-600 dark:text-slate-300">
+                      {fmtSoles(v.saldoTotal, 2, compactNumbers)}
+                    </td>
+                    <td className="p-3 text-right font-black text-red-600 dark:text-red-400">
+                      {fmtSoles(v.saldoMora, 2, compactNumbers)}
+                    </td>
+                    <td className="p-3 text-center font-black text-xs">
+                      <span className={`px-2.5 py-1 rounded-full ${
+                        v.porcentajeMora >= 50 
+                          ? 'bg-red-100 text-red-700 dark:bg-red-950/80 dark:text-red-300' 
+                          : v.porcentajeMora >= 20 
+                          ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/80 dark:text-amber-300'
+                          : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300'
+                      }`}>
+                        {v.porcentajeMora}%
+                      </span>
+                    </td>
+                    <td className="p-3">
+                      <div className="w-full bg-slate-100 dark:bg-slate-800 h-2.5 rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full transition-all duration-500 ${
+                            v.porcentajeMora >= 50 ? 'bg-red-500' : v.porcentajeMora >= 20 ? 'bg-amber-500' : 'bg-emerald-500'
+                          }`}
+                          style={{ width: `${Math.min(v.porcentajeMora, 100)}%` }}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {rankingVendedores.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="p-6 text-center text-slate-400">
+                    No se encontraron vendedores registrados.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 6. TABLA DE DOCUMENTOS EN MORA Y ACCIONES MASIVAS */}
+      <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800 shadow-sm space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-gray-100 dark:border-slate-800">
           <div>
             <h3 className="font-extrabold text-slate-800 dark:text-slate-100 text-sm flex items-center gap-2">
@@ -1074,15 +1149,13 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
-
       </div>
 
-      {/* 6. DRAWER PARA DETALLE DE DOCUMENTO */}
+      {/* 7. DRAWER PARA DETALLE DE DOCUMENTO */}
       {activeDrawerDoc && (
         <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 backdrop-blur-sm animate-fade-in">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 h-full shadow-2xl p-6 overflow-y-auto space-y-6 flex flex-col justify-between border-l border-gray-100 dark:border-slate-800">
             <div className="space-y-6">
-              
               <div className="flex items-center justify-between pb-4 border-b border-gray-100 dark:border-slate-800">
                 <div>
                   <span className="text-[10px] font-extrabold text-blue-600 dark:text-blue-400 uppercase tracking-widest bg-blue-50 dark:bg-blue-950 px-2 py-0.5 rounded-full">
@@ -1128,7 +1201,6 @@ export default function DashboardPage() {
                   )}
                 </div>
               </div>
-
             </div>
 
             <div className="space-y-2 pt-4 border-t border-gray-100 dark:border-slate-800">
@@ -1153,7 +1225,6 @@ export default function DashboardPage() {
                 <MessageCircle className="w-4 h-4" /> Contactar por WhatsApp
               </button>
             </div>
-
           </div>
         </div>
       )}
