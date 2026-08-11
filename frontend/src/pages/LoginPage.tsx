@@ -179,7 +179,8 @@ function LoginPage() {
           {/* CRÉDITOS / DESARROLLADOR */}
           <div className="mt-8 pt-4 border-t border-slate-800/60 text-center">
             <p className="text-[15px] font-normal lowercase text-slate-500">
-              Desarrollado por joan47212@gmail.com y jeancarlosquispebrena5@gmail.com
+              Desarrollado por joan47212@gmail.com y 
+              jeancarlosquispebrena5@gmail.com
             </p>
           </div>
 

@@ -169,17 +169,30 @@ const DashboardSkeleton = () => (
   </div>
 );
 
-// TOOLTIP DE RECHARTS
+// TOOLTIP DE RECHARTS CON SOPORTE PARA PORCENTAJE DE MORAS DE VENDEDORES
 const CustomRechartsTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
+    const data = payload[0].payload;
     return (
       <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-800 text-xs space-y-1">
-        <p className="font-bold text-gray-800 dark:text-slate-100">{label || payload[0].name}</p>
-        <p className="text-blue-600 dark:text-blue-400 font-extrabold">
-          {typeof payload[0].value === 'number' && payload[0].value > 100
-            ? fmtSoles(payload[0].value)
-            : `${payload[0].value} documentos`}
-        </p>
+        <p className="font-bold text-gray-800 dark:text-slate-100">{data.nombreCompleto || label || payload[0].name}</p>
+        
+        {data.porcentajeMora !== undefined ? (
+          <>
+            <p className="text-red-600 dark:text-red-400 font-extrabold">
+              Morosidad: {data.porcentajeMora}%
+            </p>
+            <p className="text-slate-500 font-medium">
+              Mora: {fmtSoles(data.mora)} de {fmtSoles(data.saldo)}
+            </p>
+          </>
+        ) : (
+          <p className="text-blue-600 dark:text-blue-400 font-extrabold">
+            {typeof payload[0].value === 'number' && payload[0].value > 100
+              ? fmtSoles(payload[0].value)
+              : `${payload[0].value} documentos`}
+          </p>
+        )}
       </div>
     );
   }
@@ -377,6 +390,7 @@ export default function DashboardPage() {
     let conteo46Mas = 0;
 
     const repSaldosMap: { [key: string]: number } = {};
+    const repMoraMap: { [key: string]: number } = {};
     const documentosEnMoraList: any[] = [];
     const clientesCriticosMap: { [key: string]: ClienteCritico } = {};
 
@@ -395,6 +409,8 @@ export default function DashboardPage() {
         montoEnMoraTotal += saldoItem; 
         conteoEnMora++;
         documentosEnMoraList.push(row); 
+
+        repMoraMap[repNombre] = (repMoraMap[repNombre] || 0) + saldoItem;
 
         if (diasMora <= 15) conteo1_15++;
         else if (diasMora <= 45) conteo16_45++;
@@ -439,6 +455,7 @@ export default function DashboardPage() {
       conteo16_45,
       conteo46Mas,
       repSaldosMap,
+      repMoraMap,
       documentosEnMoraList,
       clientesCriticosList: Object.values(clientesCriticosMap).sort((a, b) => b.saldoTotal - a.saldoTotal),
       ticketPromedio,
@@ -480,11 +497,20 @@ export default function DashboardPage() {
   ];
 
   const representantesData = Object.keys(metrics.repSaldosMap)
-    .map((rep) => ({
-      nombre: rep.length > 12 ? rep.substring(0, 12) + '...' : rep,
-      saldo: metrics.repSaldosMap[rep]
-    }))
-    .sort((a, b) => b.saldo - a.saldo)
+    .map((rep) => {
+      const total = metrics.repSaldosMap[rep] || 0;
+      const mora = metrics.repMoraMap[rep] || 0;
+      const pctMora = total > 0 ? (mora / total) * 100 : 0;
+
+      return {
+        nombreCompleto: rep,
+        nombre: rep.length > 12 ? rep.substring(0, 12) + '...' : rep,
+        saldo: total,
+        mora: mora,
+        porcentajeMora: Number(pctMora.toFixed(1))
+      };
+    })
+    .sort((a, b) => b.porcentajeMora - a.porcentajeMora)
     .slice(0, 5);
 
   const handleDocumentClick = (numDoc: string) => {
@@ -805,7 +831,7 @@ export default function DashboardPage() {
                   chartType === 'representantes' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500'
                 }`}
               >
-                <UserIcon className="w-3.5 h-3.5" /> Vendedores
+                <UserIcon className="w-3.5 h-3.5" /> Vendedores (% Mora)
               </button>
             </div>
           </div>
@@ -844,10 +870,10 @@ export default function DashboardPage() {
               ) : (
                 <BarChart data={representantesData} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                  <XAxis type="number" tick={{ fontSize: 10 }} />
+                  <XAxis type="number" unit="%" tick={{ fontSize: 10 }} domain={[0, 100]} />
                   <YAxis dataKey="nombre" type="category" tick={{ fontSize: 10 }} width={80} />
                   <Tooltip content={<CustomRechartsTooltip />} />
-                  <Bar dataKey="saldo" fill="#3B82F6" radius={[0, 8, 8, 0]} />
+                  <Bar dataKey="porcentajeMora" fill="#EF4444" radius={[0, 8, 8, 0]} />
                 </BarChart>
               )}
             </ResponsiveContainer>
