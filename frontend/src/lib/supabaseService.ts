@@ -2,6 +2,9 @@ import { supabase } from './supabaseClient'
 import { Cliente, Documento, Pago } from '../types'
 import { parseCobranzaExcelFile } from './excelService'
 
+// Re-exportamos supabase por si otros componentes lo importan directamente de este archivo
+export { supabase }
+
 // Interfaz para el tipado correcto de las filas del Excel parseado
 interface ParsedCobranzaRow {
   razon_social?: string;
@@ -13,8 +16,6 @@ interface ParsedCobranzaRow {
   estado?: string;
 }
 
-// Nota: Asegúrate de tener instalado o importado tu proveedor de notificaciones (ej: react-hot-toast o react-toastify)
-// si usas la variable global toast. De lo contrario, puedes definir un mock básico:
 const toast = (globalThis as any).toast || {
   success: (msg: string) => console.log(`[Toast Success] ${msg}`),
   error: (msg: string) => console.error(`[Toast Error] ${msg}`)
@@ -92,7 +93,6 @@ export const getDashboardMetrics = async () => {
   }
 
   try {
-    // 1. Obtener todos los clientes
     const { data: clientes, error: errorClientes } = await supabase
       .from('clientes')
       .select('*')
@@ -102,11 +102,8 @@ export const getDashboardMetrics = async () => {
 
     const listaClientes = (clientes as Cliente[]) || [];
     const clientesActivos = listaClientes.length;
-
-    // Calcular el saldo pendiente sumando la propiedad 'saldo_pendiente'
     const saldoPendienteTotal = listaClientes.reduce((sum, c) => sum + (Number(c.saldo_pendiente) || 0), 0);
 
-    // 2. Clasificar clientes según su estado
     const estadosCount = { 'Al Día': 0, 'En Mora': 0, 'Atrasados': 0 };
     listaClientes.forEach((cli) => {
       const est = (cli.estado || '').toLowerCase();
@@ -125,7 +122,6 @@ export const getDashboardMetrics = async () => {
       { name: 'Atrasados', value: estadosCount['Atrasados'], color: '#F59E0B' },
     ];
 
-    // 3. Obtener histórico de pagos para flujo mensual
     const { data: pagosData } = await supabase
       .from('pagos')
       .select('*')
@@ -135,14 +131,12 @@ export const getDashboardMetrics = async () => {
     const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
     const agrupado: Record<string, { Cobrado: number; Pendiente: number }> = {};
 
-    // Inicializar los últimos 6 meses de forma dinámica
     const hoy = new Date();
     for (let i = 5; i >= 0; i--) {
       const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
       agrupado[meses[d.getMonth()]] = { Cobrado: 0, Pendiente: 0 };
     }
 
-    // Agrupar pagos en los meses correspondientes
     pagos.forEach((pago) => {
       if (!pago.fecha_vencimiento) return;
       const fecha = new Date(pago.fecha_vencimiento);
@@ -160,7 +154,6 @@ export const getDashboardMetrics = async () => {
       }
     });
 
-    // Si no tienes pagos en tu tabla aún, dejamos el saldo de cartera en el mes actual como pendiente para evitar vacíos
     const mesActual = meses[hoy.getMonth()];
     if (agrupado[mesActual] && agrupado[mesActual].Pendiente === 0) {
       agrupado[mesActual].Pendiente = saldoPendienteTotal;
@@ -210,7 +203,6 @@ export const uploadDocumentoCompleto = async (
     const cleanFileName = file.name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "_")
     const storagePath = `${Date.now()}_${cleanFileName}.${fileExtension}`
 
-    // Subir a Storage
     const { error: storageError } = await supabase.storage
       .from('documentos')
       .upload(storagePath, file, { cacheControl: '3600', upsert: true })
@@ -219,7 +211,6 @@ export const uploadDocumentoCompleto = async (
 
     const { data: urlData } = supabase.storage.from('documentos').getPublicUrl(storagePath)
 
-    // Guardar en BD (Utilizando las columnas estándar 'nombre', 'ruta_archivo' y 'url_archivo')
     const dbPayload = {
       nombre: nombreDocumento || file.name,
       ruta_archivo: storagePath,
@@ -238,7 +229,6 @@ export const uploadDocumentoCompleto = async (
       throw new Error(`Base de Datos: ${dbError.message}`)
     }
 
-    // PROCESAMIENTO DEL EXCEL (CON CORRECCIONES Y FILTRADO ANTI-ERRORES)
     if (file.name.match(/\.(xls|xlsx)$/i)) {
       try {
         console.log('🚀 Iniciando procesamiento de Excel:', file.name)
@@ -248,16 +238,12 @@ export const uploadDocumentoCompleto = async (
         if (parsedRows.length > 0) {
           console.log('Ejemplo de fila original del Excel:', parsedRows[0])
         }
-        
-        // Mapeamos asegurando que NUNCA se envíen campos críticos como undefined o vacíos
+
         const clientesToInsert = parsedRows
           .map((row: ParsedCobranzaRow, index: number) => {
             const nombre = (row.razon_social || row.cliente || '').trim() || 'Cliente sin nombre';
-            // Si no hay código o ruc, generamos uno único combinando el tiempo y el índice de la fila
             const numero_credito = (row.codigo_socio || row.ruc_dni || '').trim() || `AUTO-${Date.now()}-${index}`;
             
-            // Homologación de Estado estricto para saltar el Check Constraint "clientes_estado_check"
-            // Traduce palabras clave a "En Mora", de lo contrario por defecto se le asigna "Al Día"
             const rawEstado = (row.estado || '').toLowerCase().trim();
             let estadoHomologado = 'Al Día';
             
@@ -273,13 +259,11 @@ export const uploadDocumentoCompleto = async (
               estado: estadoHomologado, 
             }
           })
-          // Filtro extra: Evitamos enviar objetos corruptos
           .filter(c => c.numero_credito && c.nombre);
 
         console.log('Clientes listos para insertar limpios:', clientesToInsert.length)
         
         if (clientesToInsert.length > 0) {
-          // Intentamos la inserción mediante upsert masivo
           const { error, data } = await supabase
             .from('clientes')
             .upsert(clientesToInsert, { onConflict: 'numero_credito' })
@@ -347,7 +331,6 @@ export const getDashboardMetricsFromExcel = async () => {
   try {
     console.log('📊 Solicitando métricas del Dashboard desde la base de datos...')
 
-    // 1. Validar si existen documentos registrados
     const { data: docs, error: errorDocs } = await supabase
       .from('documentos')
       .select('*')
@@ -358,7 +341,6 @@ export const getDashboardMetricsFromExcel = async () => {
 
     console.log('📄 Último documento encontrado:', docs?.[0] || 'Ninguno');
 
-    // 2. Traer todos los clientes cargados por el Excel
     const { data: clientes, error: errorClientes } = await supabase
       .from('clientes')
       .select('*');
@@ -368,7 +350,6 @@ export const getDashboardMetricsFromExcel = async () => {
     const listaClientes = (clientes as Cliente[]) || [];
     console.log('👥 Total de clientes recuperados para el Dashboard:', listaClientes.length);
 
-    // Calcular totales basados en los datos reales insertados
     const saldoPendienteTotal = listaClientes.reduce((sum, c) => sum + (Number(c.saldo_pendiente) || 0), 0);
     const clientesEnMora = listaClientes.filter(c => (c.estado || '').toLowerCase().includes('mora')).length;
     const clientesAlDia = listaClientes.length - clientesEnMora;

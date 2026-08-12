@@ -1,28 +1,41 @@
-import { DocumentoReporte, ProgramacionCuota, DocumentoComparado } from '../types/cobranza';
+import { DocumentoExcel, ProgramacionSupabase, DocumentoComparado } from '../types/cobranza';
 
-export function compararReportesCobranza(
-  reporteBase: DocumentoReporte[],         // Data del 05-08
-  programaciones: Record<string, ProgramacionCuota>, // Cuotas programadas por ID
-  reporteNuevo: DocumentoReporte[]          // Data del 07-08
+// Función para extraer de manera segura el número de documento
+function obtenerNumDoc(doc: DocumentoExcel): string {
+  return doc['Número Documento'] || doc['N° Documento'] || doc['Documento'] || doc['numeroDocumento'] || '';
+}
+
+// Función para extraer de manera segura el saldo
+function obtenerSaldo(doc: DocumentoExcel): number {
+  return Number(doc['Saldo'] || doc['Total'] || doc['saldo'] || 0);
+}
+
+export function procesarComparativa(
+  reporteBase: DocumentoExcel[],                // Excel 05-08
+  reporteNuevo: DocumentoExcel[],               // Excel 07-08
+  programaciones: Record<string, ProgramacionSupabase> // Data de Supabase
 ): DocumentoComparado[] {
   
-  // Mapa auxiliar para buscar rápido en el nuevo reporte
-  const mapaNuevo = new Map<string, DocumentoReporte>();
-  reporteNuevo.forEach((doc) => mapaNuevo.set(doc.id, doc));
+  // Mapa para búsqueda veloz en el reporte nuevo (07-08)
+  const mapaNuevo = new Map<string, DocumentoExcel>();
+  reporteNuevo.forEach((doc) => {
+    const num = obtenerNumDoc(doc);
+    if (num) mapaNuevo.set(num, doc);
+  });
 
   return reporteBase.map((docBase) => {
-    const docNuevo = mapaNuevo.get(docBase.id);
-    const prog = programaciones[docBase.id];
+    const numDoc = obtenerNumDoc(docBase);
+    const docNuevo = mapaNuevo.get(numDoc);
+    const prog = programaciones[numDoc];
 
-    const saldoAnterior = docBase.saldo;
-    // Si el documento ya no aparece en el reporte 07-08, su saldo actual es 0 (se pagó todo)
-    const saldoActual = docNuevo ? docNuevo.saldo : 0; 
-    const montoProgramado = prog ? prog.montoProgramado : 0;
+    const saldoAnterior = obtenerSaldo(docBase);
+    // Si el documento ya no aparece en el reporte 07-08, se asume saldo = 0 (Totalmente cancelado)
+    const saldoActual = docNuevo ? obtenerSaldo(docNuevo) : 0; 
     
-    // Lo que realmente abonó entre un reporte y otro
+    const montoProgramado = prog ? Number(prog.monto_programado) : 0;
     const montoPagadoReal = Math.max(0, saldoAnterior - saldoActual);
 
-    // Determinamos el estado de cumplimiento
+    // Evaluación de cumplimiento
     let estadoCumplimiento: DocumentoComparado['estadoCumplimiento'] = 'SIN_PROGRAMACION';
 
     if (montoProgramado > 0) {
@@ -36,14 +49,15 @@ export function compararReportesCobranza(
     }
 
     return {
-      ...docBase,
+      numeroDocumento: numDoc,
+      mora: docBase['Mora'] || docBase['mora'] || 'Al día',
       saldoAnterior,
       saldoActual,
       montoProgramado,
+      canalPago: prog?.canal_pago || 'Transferencia BCP',
+      fechaProgramada: prog?.fecha_programada || new Date().toISOString().split('T')[0],
       montoPagadoReal,
-      estadoCumplimiento,
-      canalPago: prog?.canalPago || docBase.canalPago || 'Transferencia BCP',
-      fecha: prog?.fechaProgramada || docBase.fecha || ''
+      estadoCumplimiento
     };
   });
 }

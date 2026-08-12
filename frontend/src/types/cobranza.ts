@@ -1,22 +1,29 @@
-export interface DocumentoReporte {
-  id: string;             // Ej: "01-F241-054213"
-  mora: string;           // Ej: "6 d." o "Al día"
-  saldo: number;          // Saldo leído de la data
-  canalPago?: string;     // Ej: "Transferencia BCP"
-  fecha?: string;         // Fecha de la programación
+export interface DocumentoExcel {
+  'Número Documento'?: string;
+  'N° Documento'?: string;
+  'Documento'?: string;
+  'Mora'?: string;
+  'Saldo'?: number;
+  'Total'?: number;
+  [key: string]: any;
 }
 
-export interface ProgramacionCuota {
-  documentoId: string;
-  montoProgramado: number;
-  canalPago: string;
-  fechaProgramada: string;
+export interface ProgramacionSupabase {
+  id?: string;
+  numero_documento: string;
+  monto_programado: number;
+  canal_pago: string;
+  fecha_programada: string;
 }
 
-export interface DocumentoComparado extends DocumentoReporte {
-  saldoAnterior: number;       // Saldo en el primer reporte (05-08)
-  saldoActual: number;         // Saldo en el segundo reporte (07-08)
-  montoProgramado: number;     // Cuota pactada
-  montoPagadoReal: number;     // Diferencia pagada (saldoAnterior - saldoActual)
+export interface DocumentoComparado {
+  numeroDocumento: string;
+  mora: string;
+  saldoAnterior: number;     // Saldo Reporte 05-08
+  saldoActual: number;       // Saldo Reporte 07-08
+  montoProgramado: number;   // Viene de Supabase
+  canalPago: string;         // Viene de Supabase
+  fechaProgramada: string;   // Viene de Supabase
+  montoPagadoReal: number;   // Saldo Anterior - Saldo Actual
   estadoCumplimiento: 'CUMPLIDO' | 'PARCIAL' | 'INCUMPLIDO' | 'SIN_PROGRAMACION';
 }
