@@ -7,7 +7,6 @@ const IMAGENES = [
   '/foto1.png',
   '/foto3.png',
   '/foto4.png',
-  '/foto5.png',
 ]
 
 function LoginPage() {
