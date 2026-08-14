@@ -27,20 +27,26 @@ function Layout({ children }: LayoutProps) {
   ]
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors duration-300">
+    /* Forzamos el ancho mínimo global para evitar que la vista responsive apriete la interfaz en móviles */
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors duration-300 min-w-[1024px] overflow-x-auto">
       <div className="flex">
-        {/* BARRA LATERAL FIJA */}
+        {/* BARRA LATERAL FIJA (Se removió "hidden md:flex" para forzar su visibilidad siempre) */}
         <aside 
-          className={`fixed top-0 left-0 z-40 h-screen flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 py-6 transition-all duration-300 hidden md:flex ${
+          className={`fixed top-0 left-0 z-40 h-screen flex flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 py-6 transition-all duration-300 ${
             isOpen ? 'w-64 px-4' : 'w-20 px-2 items-center'
           }`}
         >
           {/* HEADER DEL SIDEBAR */}
           <div className={`mb-8 flex w-full items-center ${isOpen ? 'justify-between' : 'justify-center'}`}>
-            {isOpen && <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Cobranza Midhco Distribuciones S.A.C.</h2>}
+            {isOpen && (
+              <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100 leading-snug">
+                Cobranza Midhco<br />
+                <span className="text-xs font-normal text-slate-500 dark:text-slate-400">Distribuciones S.A.C.</span>
+              </h2>
+            )}
             <button 
               onClick={toggleSidebar} 
-              className="rounded-lg p-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors"
+              className="rounded-lg p-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors shrink-0"
               title={isOpen ? "Colapsar menú" : "Expandir menú"}
             >
               <Menu className="h-5 w-5" />
@@ -101,9 +107,9 @@ function Layout({ children }: LayoutProps) {
           </div>
         </aside>
 
-        {/* CONTENIDO PRINCIPAL */}
+        {/* CONTENIDO PRINCIPAL (Se forzó la separación respecto al sidebar siempre) */}
         <main className={`flex-1 p-6 transition-all duration-300 w-full ${
-          isOpen ? 'md:pl-64' : 'md:pl-20'
+          isOpen ? 'pl-64' : 'pl-20'
         }`}>
           {children}
         </main>

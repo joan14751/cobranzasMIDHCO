@@ -23,7 +23,6 @@ export function SidebarProvider({ children }: { children: ReactNode }) {
   )
 }
 
-// Aseguramos la exportación con 'export' nombrado
 export const useSidebar = () => {
   const context = useContext(SidebarContext)
   if (context === undefined) {
