@@ -1,7 +1,7 @@
 import { FormEvent, useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext.tsx'
 import { useNavigate } from 'react-router-dom'
-import { Lock, Mail, Loader2, Building2, Eye, EyeOff, ShieldCheck } from 'lucide-react'
+import { Lock, Mail, Loader2, Building2, Eye, EyeOff } from 'lucide-react'
 
 const IMAGENES = [
   '/foto1.png',
@@ -24,7 +24,7 @@ function LoginPage() {
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentImageIndex((prevIndex) => (prevIndex + 1) % IMAGENES.length)
-    }, 4000) // 4 segundos para apreciar mejor cada foto
+    }, 4000)
 
     return () => clearInterval(timer)
   }, [])
@@ -44,12 +44,13 @@ function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen w-full bg-slate-950 font-sans antialiased">
+    /* Forzamos el ancho mínimo de escritorio (1024px) con scroll horizontal para mantener exactamente la vista PC */
+    <div className="flex min-h-screen w-full bg-slate-950 font-sans antialiased min-w-[1024px] overflow-x-auto">
       
-      {/* SECCIÓN IZQUIERDA: Carrusel con efectos visuales */}
-      <div className="relative hidden lg:flex lg:w-1/2 xl:w-7/12 items-center justify-center bg-slate-950 p-8 overflow-hidden select-none">
+      {/* SECCIÓN IZQUIERDA: Carrusel (Se removió 'hidden' para que siempre sea visible) */}
+      <div className="relative flex w-1/2 xl:w-7/12 items-center justify-center bg-slate-950 p-8 overflow-hidden select-none">
         
-        {/* Imágenes con transición de opacidad y zoom sutil */}
+        {/* Imágenes con transición */}
         {IMAGENES.map((imgSrc, index) => (
           <img
             key={imgSrc}
@@ -62,7 +63,8 @@ function LoginPage() {
             }`}
           />
         ))}
-        {/* Indicadores de puntos abajo */}
+
+        {/* Indicadores de puntos */}
         <div className="absolute bottom-8 z-20 flex gap-2">
           {IMAGENES.map((_, index) => (
             <button
@@ -77,12 +79,12 @@ function LoginPage() {
         </div>
       </div>
 
-      {/* SECCIÓN DERECHA: Formulario dentro de Card con Glassmorphism */}
-      <div className="flex w-full lg:w-1/2 xl:w-5/12 items-center justify-center p-6 sm:p-12 bg-slate-950">
+      {/* SECCIÓN DERECHA: Formulario de Login (Fijo a la mitad) */}
+      <div className="flex w-1/2 xl:w-5/12 items-center justify-center p-6 sm:p-12 bg-slate-950">
         <div className="w-full max-w-md rounded-3xl border border-slate-800/80 bg-slate-900/50 p-8 shadow-2xl backdrop-blur-xl flex flex-col justify-between">
           
           <div>
-            <div className="mb-8 text-center lg:text-left">
+            <div className="mb-8 text-left">
               <div className="mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 text-white shadow-lg shadow-blue-500/25 ring-4 ring-blue-500/10">
                 <Building2 className="h-7 w-7" />
               </div>
@@ -177,8 +179,8 @@ function LoginPage() {
 
           {/* CRÉDITOS / DESARROLLADOR */}
           <div className="mt-8 pt-4 border-t border-slate-800/60 text-center">
-            <p className="text-[15px] font-normal lowercase text-slate-500">
-              Desarrollado por joan47212@gmail.com y 
+            <p className="text-[13px] font-normal lowercase text-slate-500">
+              desarrollado por joan47212@gmail.com y <br />
               jeancarlosquispebrena5@gmail.com
             </p>
           </div>
