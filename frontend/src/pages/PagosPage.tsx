@@ -620,43 +620,43 @@ export default function PagosPage() {
     }
   }
 
-  // PROGRAMAR FILA (CON VALIDACIÓN DE SOBREMONTO)
-  const handleProgramarFila = async (row: any, index: number) => {
-    const docNum = row.documento || row.doc || row.num_doc || `row-${index}`
-    const montoStr = inputsMonto[docNum]
-    const fecha = inputsFecha[docNum]
-    const metodo = inputsMetodo[docNum] || 'Transferencia BCP'
-    const saldoBase = Number(row.saldo || 0)
-
-    if (montoStr === '' || montoStr === undefined || isNaN(parseFloat(montoStr)) || parseFloat(montoStr) < 0) {
-      toast.error('Por favor, ingresa un monto válido (0 o mayor).')
+  // UN SOLO BOTÓN ACTUALIZAR: PROGRAMAR TODOS LOS DOCUMENTOS VISIBLES
+  const handleActualizarTodos = async () => {
+    if (!documentosFiltrados || documentosFiltrados.length === 0) {
+      toast.error('No hay documentos para actualizar.')
       return
     }
 
-    const montoProg = parseFloat(montoStr)
+    let conErrores = false
+    const registrosASupabase: any[] = []
+    const nuevosPagos: PagoProgramado[] = []
 
-    // 🔴 VALIDACIÓN DE SOBREMONTO ANTES DE GUARDAR EN SUPABASE
-    if (montoProg > saldoBase) {
-      toast.error(`El monto programado (S/. ${montoProg.toFixed(2)}) no puede exceder el saldo actual (S/. ${saldoBase.toFixed(2)}).`)
-      return
-    }
+    documentosFiltrados.forEach((row, index) => {
+      const docNum = row.documento || row.doc || row.num_doc || `row-${index}`
+      const montoStr = inputsMonto[docNum]
+      const fecha = inputsFecha[docNum] || new Date().toISOString().split('T')[0]
+      const metodo = inputsMetodo[docNum] || 'Transferencia BCP'
+      const saldoBase = Number(row.saldo || 0)
 
-    try {
-      const { error } = await supabase
-        .from('programaciones_cuotas')
-        .upsert(
-          {
-            numero_documento: docNum,
-            monto_programado: montoProg,
-            canal_pago: metodo,
-            fecha_programada: fecha,
-          },
-          { onConflict: 'numero_documento' }
-        )
+      if (montoStr === undefined || montoStr === '') return
 
-      if (error) throw error
+      const montoProg = parseFloat(montoStr)
+      if (isNaN(montoProg) || montoProg < 0) return
 
-      const nuevoPago: PagoProgramado = {
+      if (montoProg > saldoBase) {
+        toast.error(`El monto del doc ${docNum} (S/. ${montoProg.toFixed(2)}) supera la deuda (S/. ${saldoBase.toFixed(2)}).`)
+        conErrores = true
+        return
+      }
+
+      registrosASupabase.push({
+        numero_documento: docNum,
+        monto_programado: montoProg,
+        canal_pago: metodo,
+        fecha_programada: fecha,
+      })
+
+      nuevosPagos.push({
         id: `pago-${Date.now()}-${index}`,
         cliente: row.cliente || 'Desconocido',
         documento: docNum,
@@ -667,15 +667,35 @@ export default function PagosPage() {
         fechaProgramada: fecha,
         metodoPago: metodo,
         estado: 'Pendiente'
-      }
+      })
+    })
 
-      const listaActualizada = [nuevoPago, ...pagosProgramados.filter(p => p.documento !== docNum)]
+    if (conErrores) return
+
+    if (registrosASupabase.length === 0) {
+      toast.error('No hay cambios ni montos válidos para guardar.')
+      return
+    }
+
+    try {
+      const { error } = await supabase
+        .from('programaciones_cuotas')
+        .upsert(registrosASupabase, { onConflict: 'numero_documento' })
+
+      if (error) throw error
+
+      const docsActualizados = registrosASupabase.map(r => r.numero_documento)
+      const listaActualizada = [
+        ...nuevosPagos,
+        ...pagosProgramados.filter(p => !docsActualizados.includes(p.documento))
+      ]
+
       setPagosProgramados(listaActualizada)
       localStorage.setItem('cobranza_pagos_programados', JSON.stringify(listaActualizada))
 
       await fetchProgramacionesSupabase()
 
-      toast.success(`Programación (${montoProg}) guardada para ${docNum}`)
+      toast.success(`Programación guardada correctamente para ${registrosASupabase.length} documento(s).`)
     } catch (err: any) {
       toast.error('Error al guardar en Supabase: ' + err.message)
     }
@@ -1131,14 +1151,26 @@ export default function PagosPage() {
                 </span>
               </div>
 
-              <button
-                onClick={handleLimpiarMontosCliente}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/30 rounded-md text-xs font-medium transition-all shadow-sm"
-                title="Poner todos los montos de este cliente en 0.00"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-                Resetear a 0.00
-              </button>
+              {/* BOTONES DE ACCIÓN GLOBAL DEL CLIENTE */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleLimpiarMontosCliente}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/30 rounded-md text-xs font-medium transition-all shadow-sm"
+                  title="Poner todos los montos de este cliente en 0.00"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Resetear a 0.00
+                </button>
+
+                <button
+                  onClick={handleActualizarTodos}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-bold transition-all shadow-sm"
+                  title="Guardar / Actualizar todas las programaciones del cliente"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Actualizar
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto overflow-y-auto flex-1">
@@ -1148,16 +1180,15 @@ export default function PagosPage() {
                     <th className="p-2">Documento</th>
                     <th className="p-2 text-center">Mora</th>
                     <th className="p-2 text-right">Saldo Base</th>
-                    <th className="p-2 w-[14%]">Monto Programar</th>
-                    <th className="p-2 w-[16%]">Canal Pago</th>
-                    <th className="p-2 w-[14%]">Fecha</th>
+                    <th className="p-2 w-[18%]">Monto Programar</th>
+                    <th className="p-2 w-[20%]">Canal Pago</th>
+                    <th className="p-2 w-[18%]">Fecha</th>
                     {selectedDocIdComparar && (
                       <>
                         <th className="p-2 text-right text-amber-800 bg-amber-50">Saldo Nuevo</th>
                         <th className="p-2 text-center bg-amber-50">Cumplimiento</th>
                       </>
                     )}
-                    <th className="p-2 text-center">Acción</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -1269,15 +1300,6 @@ export default function PagosPage() {
                             </td>
                           </>
                         )}
-
-                        <td className="p-2 text-center">
-                          <button
-                            onClick={() => handleProgramarFila(row, index)}
-                            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded transition shadow-sm"
-                          >
-                            Actualizar
-                          </button>
-                        </td>
                       </tr>
                     )
                   })}
@@ -1291,7 +1313,7 @@ export default function PagosPage() {
                     <td className="p-2 text-right font-black text-gray-900 font-mono text-xs">
                       S/. {totalSaldoDocumentos.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
-                    <td colSpan={selectedDocIdComparar ? 6 : 4}></td>
+                    <td colSpan={selectedDocIdComparar ? 5 : 3}></td>
                   </tr>
                 </tfoot>
 
