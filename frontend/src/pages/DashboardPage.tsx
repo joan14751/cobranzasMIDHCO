@@ -31,9 +31,7 @@ import {
   FileSearch,
   Bell,
   ArrowRight,
-  Calendar,
   Award,
-  TrendingUp,
   MapPin
 } from 'lucide-react'; 
 import { 
@@ -81,7 +79,7 @@ interface DocumentoDetalle {
 }
 
 type ChartType = 'pie' | 'tramos' | 'representantes';
-type RangoMoraPill = 'todos' | 'al_dia' | '1_15' | '16_45' | '46_mas';
+type RangoMoraPill = 'todos' | 'al_dia' | '0_30' | '31_60' | '61_90' | '91_120' | '120_mas';
 
 const formatFechaHora = (fechaRaw?: string) => {
   if (!fechaRaw) return 'Fecha no disponible';
@@ -129,30 +127,44 @@ const fmtSoles = (monto: number, decimales: number = 2, compact: boolean = false
 };
 
 const renderMoraBadge = (dias: number) => {
-  if (dias <= 0) {
+  if (dias < 0) {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300">
         🟢 Al Día
       </span>
     );
   }
-  if (dias <= 15) {
+  if (dias <= 30) {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/50 dark:border-emerald-800 dark:text-emerald-300">
-        🟢 {dias}d (Bajo)
+        🟢 {dias}d (0-30d)
       </span>
     );
   }
-  if (dias <= 45) {
+  if (dias <= 60) {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200 dark:bg-amber-950/70 dark:border-amber-800 dark:text-amber-300">
-        🟡 {dias}d (Atención)
+        🟡 {dias}d (31-60d)
+      </span>
+    );
+  }
+  if (dias <= 90) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-100 text-orange-800 border border-orange-200 dark:bg-orange-950/80 dark:border-orange-800 dark:text-orange-300">
+        🟠 {dias}d (61-90d)
+      </span>
+    );
+  }
+  if (dias <= 120) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200 dark:bg-rose-950/80 dark:border-rose-800 dark:text-rose-300">
+        🔴 {dias}d (91-120d)
       </span>
     );
   }
   return (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-800 border border-red-200 dark:bg-red-950/80 dark:border-red-800 dark:text-red-300 animate-pulse">
-      🔴 {dias}d (Crítico)
+      🚨 {dias}d (120+ d)
     </span>
   );
 };
@@ -228,7 +240,6 @@ export default function DashboardPage() {
   }, [excelDocs, selectedDocId]);
 
   const activeDocFechaCargaRaw = activeDocument?.fecha_carga || activeDocument?.created_at || activeDocument?.fecha;
-  const activeDocFechaHoraFormatted = useMemo(() => formatFechaHora(activeDocFechaCargaRaw), [activeDocFechaCargaRaw]);
   const activeDocHoraShort = useMemo(() => formatHoraCorta(activeDocFechaCargaRaw), [activeDocFechaCargaRaw]);
 
   const fetchUserData = async () => {
@@ -286,7 +297,7 @@ export default function DashboardPage() {
       const parsedRows = await parseCobranzaExcelFile(file);
       setAllRows(parsedRows);
 
-      const criticos = parsedRows.filter((r: any) => Number(r.dias_mora || 0) >= 90);
+      const criticos = parsedRows.filter((r: any) => Number(r.dias_mora || 0) >= 91);
       if (criticos.length > 0) {
         const sumaCritica = criticos.reduce((acc: number, r: any) => acc + Number(r.saldo || 0), 0);
         setCriticalToast({ count: criticos.length, monto: sumaCritica });
@@ -349,10 +360,12 @@ export default function DashboardPage() {
       }
       
       const dias = Number(row.dias_mora || 0);
-      if (selectedPill === 'al_dia') return dias <= 0;
-      if (selectedPill === '1_15') return dias >= 1 && dias <= 15;
-      if (selectedPill === '16_45') return dias >= 16 && dias <= 45;
-      if (selectedPill === '46_mas') return dias >= 46;
+      if (selectedPill === 'al_dia') return dias < 0;
+      if (selectedPill === '0_30') return dias >= 0 && dias <= 30;
+      if (selectedPill === '31_60') return dias >= 31 && dias <= 60;
+      if (selectedPill === '61_90') return dias >= 61 && dias <= 90;
+      if (selectedPill === '91_120') return dias >= 91 && dias <= 120;
+      if (selectedPill === '120_mas') return dias > 120;
 
       return true;
     });
@@ -363,7 +376,7 @@ export default function DashboardPage() {
     return previousRows.reduce((acc: number, row: any) => {
       const diasMora = Number(row.dias_mora || 0);
       const estado = (row.estado || '').toLowerCase();
-      if (diasMora > 0 || estado.includes('mora')) {
+      if (diasMora >= 0 || estado.includes('mora')) {
         return acc + Number(row.saldo || 0);
       }
       return acc;
@@ -380,9 +393,11 @@ export default function DashboardPage() {
     let conteoAlDia = 0;
     let conteoEnMora = 0;
 
-    let conteo1_15 = 0;
-    let conteo16_45 = 0;
-    let conteo46Mas = 0;
+    let conteo0_30 = 0;
+    let conteo31_60 = 0;
+    let conteo61_90 = 0;
+    let conteo91_120 = 0;
+    let conteo120Mas = 0;
 
     const repSaldosMap: { [key: string]: number } = {};
     const repMoraMap: { [key: string]: number } = {};
@@ -400,18 +415,20 @@ export default function DashboardPage() {
 
       repSaldosMap[repNombre] = (repSaldosMap[repNombre] || 0) + saldoItem;
 
-      if (diasMora > 0 || estado.includes('mora')) {
+      if (diasMora >= 0 || estado.includes('mora')) {
         montoEnMoraTotal += saldoItem; 
         conteoEnMora++;
         documentosEnMoraList.push(row); 
 
         repMoraMap[repNombre] = (repMoraMap[repNombre] || 0) + saldoItem;
 
-        if (diasMora <= 15) conteo1_15++;
-        else if (diasMora <= 45) conteo16_45++;
-        else conteo46Mas++;
+        if (diasMora <= 30) conteo0_30++;
+        else if (diasMora <= 60) conteo31_60++;
+        else if (diasMora <= 90) conteo61_90++;
+        else if (diasMora <= 120) conteo91_120++;
+        else conteo120Mas++;
 
-        if (diasMora >= 90) {
+        if (diasMora >= 91) {
           if (!clientesCriticosMap[clienteKey]) {
             clientesCriticosMap[clienteKey] = {
               ruc_dni: clienteKey,
@@ -447,9 +464,11 @@ export default function DashboardPage() {
       montoPorVencerTotal,
       conteoAlDia,
       conteoEnMora,
-      conteo1_15,
-      conteo16_45,
-      conteo46Mas,
+      conteo0_30,
+      conteo31_60,
+      conteo61_90,
+      conteo91_120,
+      conteo120Mas,
       repSaldosMap,
       repMoraMap,
       documentosEnMoraList,
@@ -483,7 +502,7 @@ export default function DashboardPage() {
   const filteredDocsInMora = useMemo(() => {
     return filteredRows.filter((doc: any) => {
       const dias = Number(doc.dias_mora || 0);
-      if (dias <= 0 && selectedPill === 'todos') return false; 
+      if (dias < 0 && selectedPill === 'todos') return false; 
       if (!searchTableTerm.trim()) return true;
 
       const term = searchTableTerm.toLowerCase().trim();
@@ -509,9 +528,11 @@ export default function DashboardPage() {
 
   const tramosData = [
     { tramo: 'Al Día', cantidad: metrics.conteoAlDia, color: '#10B981' },
-    { tramo: '1-15 días', cantidad: metrics.conteo1_15, color: '#10B981' },
-    { tramo: '16-45 días', cantidad: metrics.conteo16_45, color: '#F59E0B' },
-    { tramo: '46+ días', cantidad: metrics.conteo46Mas, color: '#EF4444' }
+    { tramo: '0-30d', cantidad: metrics.conteo0_30, color: '#10B981' },
+    { tramo: '31-60d', cantidad: metrics.conteo31_60, color: '#F59E0B' },
+    { tramo: '61-90d', cantidad: metrics.conteo61_90, color: '#F97316' },
+    { tramo: '91-120d', cantidad: metrics.conteo91_120, color: '#F43F5E' },
+    { tramo: '120+ d', cantidad: metrics.conteo120Mas, color: '#EF4444' }
   ];
 
   const representantesData = rankingVendedores.slice(0, 5).map(r => ({
@@ -610,7 +631,6 @@ export default function DashboardPage() {
                   </option>
                 ))}
               </select>
-              
             </div>
           </div>
 
@@ -635,7 +655,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* 2. FILTROS RÁPIDOS */}
+      {/* 2. FILTROS RÁPIDOS (NUEVO RANGO DE FECHAS) */}
       <div className="bg-white dark:bg-slate-900 p-4 rounded-3xl border border-gray-100 dark:border-slate-800 shadow-sm space-y-3">
         <div className="flex flex-col md:flex-row items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-1.5 w-full md:w-auto">
@@ -645,9 +665,11 @@ export default function DashboardPage() {
             {[
               { key: 'todos', label: 'Todos' },
               { key: 'al_dia', label: '🟢 Al Día' },
-              { key: '1_15', label: '🟢 1-15d' },
-              { key: '16_45', label: '🟡 16-45d' },
-              { key: '46_mas', label: '🔴 +46d' }
+              { key: '0_30', label: '🟢 0-30d' },
+              { key: '31_60', label: '🟡 31-60d' },
+              { key: '61_90', label: '🟠 61-90d' },
+              { key: '91_120', label: '🔴 91-120d' },
+              { key: '120_mas', label: '🚨 120+ d' }
             ].map(pill => (
               <button
                 key={pill.key}
@@ -704,7 +726,7 @@ export default function DashboardPage() {
             </div>
           </div>
           <button
-            onClick={() => setSelectedPill('46_mas')}
+            onClick={() => setSelectedPill('91_120')}
             className="px-3 py-1.5 bg-white text-red-600 rounded-xl text-xs font-black shadow hover:bg-red-50 transition whitespace-nowrap flex items-center gap-1"
           >
             Filtrar Morosos <ArrowRight className="w-3.5 h-3.5" />
