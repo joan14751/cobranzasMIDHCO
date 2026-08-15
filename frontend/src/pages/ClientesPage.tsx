@@ -528,11 +528,7 @@ export default function ClientesPage() {
                 </div>
                 {selectedDocObj && (
                   <div className="flex items-center gap-1 text-[11px]">
-                    <Calendar className="h-3 w-3 text-blue-500 shrink-0" />
-                    <span className="text-gray-500 font-medium">Actualizado hasta:</span>
-                    <span className="font-bold text-blue-600">
-                      {formatFechaHora(selectedDocObj.fecha_carga || selectedDocObj.created_at || selectedDocObj.fecha)}
-                    </span>
+                    <Calendar className="h-3 w-3 text-blue-500 shrink-0" />                   
                   </div>
                 )}
               </div>
@@ -563,9 +559,7 @@ export default function ClientesPage() {
                         </p>
                         {fechaFmt && (
                           <div className="flex items-center gap-1 text-[11px] mt-0.5">
-                            <Calendar className="h-3 w-3 text-blue-500 shrink-0" />
-                            <span className="text-gray-500 font-medium">Actualizado hasta:</span>
-                            <span className="font-bold text-blue-600">{fechaFmt}</span>
+                        
                           </div>
                         )}
                       </div>

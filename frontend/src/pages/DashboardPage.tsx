@@ -610,10 +610,7 @@ export default function DashboardPage() {
                   </option>
                 ))}
               </select>
-              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                <Calendar className="w-3 h-3 text-blue-500" />
-                Actualizado hasta: <strong className="text-blue-600 dark:text-blue-400">{activeDocFechaHoraFormatted}</strong>
-              </span>
+              
             </div>
           </div>
 
