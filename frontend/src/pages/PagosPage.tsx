@@ -39,6 +39,7 @@ interface ProgramacionSupabase {
   monto_programado: number
   canal_pago: string
   fecha_programada: string
+  carga_id?: string
 }
 
 export default function PagosPage() {
@@ -84,7 +85,7 @@ export default function PagosPage() {
   const [inputsFecha, setInputsFecha] = useState<{ [key: string]: string }>({})
   const [inputsMetodo, setInputsMetodo] = useState<{ [key: string]: string }>({})
 
-  // 🤖 ESTADO PARA MODAL CUMPLIMIENTO / WHATSAPP
+  // ESTADO PARA MODAL CUMPLIMIENTO / WHATSAPP
   const [clienteWhatsAppModal, setClienteWhatsAppModal] = useState<{
     cliente: string
     telefono: string
@@ -119,10 +120,17 @@ export default function PagosPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // 1. CARGAR PROGRAMACIONES DESDE SUPABASE
-  const fetchProgramacionesSupabase = async () => {
+  // 1. CARGAR PROGRAMACIONES FILTRADAS POR EL DOCUMENTO/CARGA SELECCIONADO
+  const fetchProgramacionesSupabase = async (docId?: string) => {
+    const targetDocId = docId || selectedDocId
+    if (!targetDocId) return
+
     try {
-      const { data, error } = await supabase.from('programaciones_cuotas').select('*')
+      const { data, error } = await supabase
+        .from('programaciones_cuotas')
+        .select('*')
+        .eq('carga_id', targetDocId)
+
       if (error) {
         console.error('Error al obtener programaciones:', error)
         return
@@ -244,9 +252,14 @@ export default function PagosPage() {
   }
 
   useEffect(() => {
-    fetchProgramacionesSupabase()
     fetchDocumentosList()
   }, [])
+
+  useEffect(() => {
+    if (selectedDocId) {
+      fetchProgramacionesSupabase(selectedDocId)
+    }
+  }, [selectedDocId])
 
   useEffect(() => {
     if (selectedDocId && excelDocs.length > 0) {
@@ -471,7 +484,7 @@ export default function PagosPage() {
     }
   }
 
-  // 🤖 PREPARAR NOTIFICACIÓN WHATSAPP POR CLIENTE
+  // PREPARAR NOTIFICACIÓN WHATSAPP POR CLIENTE
   const abrirModalWhatsApp = (nombreCliente: string, telefonoCliente: string = '') => {
     const docsCliente = allRows.filter(r => (r.cliente || '') === nombreCliente)
     let totalProgramado = 0
@@ -511,7 +524,7 @@ export default function PagosPage() {
     toast.success('Abriendo WhatsApp...')
   }
 
-  // 📊 EXPORTACIÓN DE REPORTE DE CUMPLIMIENTO / EFICIENCIA
+  // EXPORTACIÓN DE REPORTE DE CUMPLIMIENTO / EFICIENCIA
   const exportarReporteCumplimiento = () => {
     if (!selectedDocIdComparar) {
       toast.error('Para exportar el reporte de eficiencia debes seleccionar un 2do archivo en "Comparar con".')
@@ -589,11 +602,12 @@ export default function PagosPage() {
         monto_programado: 0,
         canal_pago: inputsMetodo[docNum] || 'Transferencia BCP',
         fecha_programada: inputsFecha[docNum] || new Date().toISOString().split('T')[0],
+        carga_id: selectedDocId
       }))
 
       const { error } = await supabase
         .from('programaciones_cuotas')
-        .upsert(registrosACero, { onConflict: 'numero_documento' })
+        .upsert(registrosACero, { onConflict: 'numero_documento,carga_id' })
 
       if (error) throw error
 
@@ -611,7 +625,7 @@ export default function PagosPage() {
       setPagosProgramados(pagosFiltrados)
       localStorage.setItem('cobranza_pagos_programados', JSON.stringify(pagosFiltrados))
 
-      await fetchProgramacionesSupabase()
+      await fetchProgramacionesSupabase(selectedDocId)
 
       toast.success('Se resetearon los montos a 0.00 correctamente')
     } catch (err: any) {
@@ -620,10 +634,15 @@ export default function PagosPage() {
     }
   }
 
-  // UN SOLO BOTÓN ACTUALIZAR: PROGRAMAR TODOS LOS DOCUMENTOS VISIBLES
+  // PROGRAMAR TODOS LOS DOCUMENTOS VISIBLES
   const handleActualizarTodos = async () => {
     if (!documentosFiltrados || documentosFiltrados.length === 0) {
       toast.error('No hay documentos para actualizar.')
+      return
+    }
+
+    if (!selectedDocId) {
+      toast.error('No hay un documento base seleccionado.')
       return
     }
 
@@ -654,6 +673,7 @@ export default function PagosPage() {
         monto_programado: montoProg,
         canal_pago: metodo,
         fecha_programada: fecha,
+        carga_id: selectedDocId
       })
 
       nuevosPagos.push({
@@ -680,7 +700,7 @@ export default function PagosPage() {
     try {
       const { error } = await supabase
         .from('programaciones_cuotas')
-        .upsert(registrosASupabase, { onConflict: 'numero_documento' })
+        .upsert(registrosASupabase, { onConflict: 'numero_documento,carga_id' })
 
       if (error) throw error
 
@@ -693,7 +713,7 @@ export default function PagosPage() {
       setPagosProgramados(listaActualizada)
       localStorage.setItem('cobranza_pagos_programados', JSON.stringify(listaActualizada))
 
-      await fetchProgramacionesSupabase()
+      await fetchProgramacionesSupabase(selectedDocId)
 
       toast.success(`Programación guardada correctamente para ${registrosASupabase.length} documento(s).`)
     } catch (err: any) {
@@ -1116,7 +1136,7 @@ export default function PagosPage() {
                           </div>
                         </td>
 
-                        {/* 🤖 BOTÓN NOTIFICAR CUMPLIMIENTO / RECORDATORIO */}
+                        {/* BOTÓN NOTIFICAR CUMPLIMIENTO / RECORDATORIO */}
                         <td className="p-2 text-center">
                           <button
                             onClick={(e) => {
@@ -1234,7 +1254,7 @@ export default function PagosPage() {
                           S/. {saldoBase.toLocaleString('es-PE', { minimumFractionDigits: 2 })}
                         </td>
                         
-                        {/* 🛡️ INPUT DE MONTO CON ALERTA Y TOOLTIP */}
+                        {/* INPUT DE MONTO CON ALERTA Y TOOLTIP */}
                         <td className="p-1">
                           {(() => {
                             const montoIngresado = parseFloat(inputsMonto[docNum] || '0')
@@ -1279,7 +1299,7 @@ export default function PagosPage() {
                           </select>
                         </td>
 
-                        {/* 📅 INPUT DE FECHA CON RESTRICCIÓN DE FECHAS PASADAS */}
+                        {/* INPUT DE FECHA CON RESTRICCIÓN DE FECHAS PASADAS */}
                         <td className="p-1">
                           <input
                             type="date"
@@ -1405,7 +1425,7 @@ export default function PagosPage() {
         </div>
       </div>  
 
-      {/* 🤖 MODAL DE NOTIFICACIÓN WHATSAPP */}
+      {/* MODAL DE NOTIFICACIÓN WHATSAPP */}
       {clienteWhatsAppModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-gray-100">
